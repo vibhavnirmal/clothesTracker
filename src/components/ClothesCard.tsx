@@ -52,7 +52,7 @@ export function ClothesCard({
   const isChecked = selected || wornToday;
 
   const wearStatusLabel = wornToday
-    ? 'Marked worn today (tap to undo)'
+    ? 'Worn today'
     : lastWearDate
       ? `Last worn: ${formatWearDate(lastWearDate)}`
       : 'Never worn yet';
@@ -74,9 +74,11 @@ export function ClothesCard({
 
   return (
     <div
-      className={`bg-white rounded-2xl shadow-md p-4 relative transition-all ${
-        selected ? 'ring-2 ring-blue-500' : ''
-      } cursor-pointer`}
+      className={`bg-white relative transition-all cursor-pointer`}
+      style={{
+        boxShadow: selected ? '0 0 10px 2px #c5c5c598' : '0 1px 3px rgba(0, 0, 0, 0)',
+        padding: '0.5rem'
+      }}
       role="button"
       tabIndex={0}
       aria-pressed={isChecked}
@@ -90,7 +92,7 @@ export function ClothesCard({
             event.stopPropagation();
             onEdit();
           }}
-          className="absolute -top-2 left-2 inline-flex items-center justify-center rounded border border-gray-500 bg-gray-100 p-1 text-gray-500 shadow-sm transition hover:border-gray-300 hover:text-gray-700"
+          className="absolute top-1 left-1 inline-flex items-center justify-center bg-gray-100 p-1 text-gray-500 transition hover:border-gray-300 hover:text-gray-700"
           aria-label={`Edit ${item.name}`}
         >
           <Pencil className="h-3.5 w-3.5" />
@@ -98,22 +100,22 @@ export function ClothesCard({
       )}
       {/* Wear count badge */}
       {item.wearsSinceWash >= 1 && (
-        <div className={`absolute -top-2 -right-2 ${badgeColor} text-white rounded-full w-8 h-8 flex items-center justify-center text-sm font-bold shadow-lg`}>
+        <div className={`absolute -top-2 -right-2 ${badgeColor} text-white w-8 h-8 flex items-center justify-center text-sm font-bold`}>
           {item.wearsSinceWash}
         </div>
       )}
 
       {/* Image or initials placeholder */}
-      <div className="mb-3">
+      <div className="">
         {item.image ? (
           <ImageWithFallback
             src={item.image}
             alt={item.name}
-            className="w-full h-32 object-cover rounded-lg"
+            className="w-full h-32 object-cover "
           />
         ) : (
           <div 
-            className={`w-full h-32 rounded-lg flex items-center justify-center text-white text-2xl ${getColorFromName(item.name)}`}
+            className={`w-full h-32 flex items-center justify-center text-white text-2xl ${getColorFromName(item.name)}`}
             style={{ backgroundColor: item.color || undefined }}
           >
             {getInitials(item.name)}
@@ -122,25 +124,25 @@ export function ClothesCard({
       </div>
 
       {/* Clothes info */}
-      <div className="space-y-1 mb-3">
-        <h3 className="text-sm truncate">{item.name}</h3>
-        <p className="text-xs text-gray-600">{item.type}</p>
-        {item.color && (
-          <div className="flex items-center gap-2">
-            <div 
-              className="w-3 h-3 rounded-full border border-gray-300"
-              style={{ backgroundColor: item.color }}
-            />
-            <span className="text-xs text-gray-600 capitalize">{getColorName(item.color)}</span>
-          </div>
-        )}
-        <p className={`text-xs ${wornToday ? 'text-green-600 font-medium' : 'text-gray-500'}`}>
-          {wearStatusLabel}
-        </p>
+      <div className="flex justify-between items-center space-y-1">
+        <div className='items-start' style={{ paddingTop: '0.5rem' }}>
+          <h3 className="text-sm truncate">{item.name}</h3>
+          <p className="text-xs text-gray-600">{item.type}</p>
+        </div>
+        <div className='items-end text-right'>
+          {item.color && (
+            <div className="flex items-center gap-2">
+              <div 
+                className="w-3 h-3 rounded-full border border-gray-300"
+                style={{ backgroundColor: item.color }}
+              />
+              <span className="text-xs text-gray-600 capitalize">{getColorName(item.color)}</span>
+            </div>
+          )}
+        </div>
       </div>
-
       {/* Wear today checkbox */}
-      <div className="flex items-center space-x-2" data-no-card-toggle>
+      <div className="flex items-center space-x-2" style={{ paddingTop: '0.5rem', paddingBottom: '0.5rem' }} data-no-card-toggle>
         <Checkbox
           id={`wear-${item.id}`}
           checked={isChecked}
@@ -151,13 +153,15 @@ export function ClothesCard({
             onToggle(Boolean(value));
           }}
         />
-        <label
-          htmlFor={`wear-${item.id}`}
-          className={`text-xs cursor-pointer ${wornToday ? 'text-red-600 font-medium' : 'text-gray-700'}`}
-          data-no-card-toggle
-        >
-          {wornToday ? 'Undo worn today' : isChecked ? 'Remove from today' : 'Wear today'}
+        <label htmlFor={`wear-${item.id}`} className="select-none text-sm">
+          {isChecked ? 'Marked for' : 'Wear'} today
         </label>
+      </div>
+      {/* Last worn info */}
+      <div className="mt-1">
+        <p className={`text-xs ${wornToday ? 'text-green-600 font-medium' : 'text-gray-500'}`}>
+          {wearStatusLabel}
+        </p>
       </div>
     </div>
   );

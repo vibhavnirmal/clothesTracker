@@ -1,0 +1,32 @@
+services:
+  clothes-tracker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: clothes-tracker-app
+    ports:
+      - "4242:4000"
+    volumes:
+      # Mount data directory for SQLite database persistence
+      - ./data:/app/data
+      # Optional: Mount uploads directory if you have file uploads
+      - ./uploads:/app/uploads
+    environment:
+      - NODE_ENV=production
+      - PORT=4000
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:4000', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  # Define named volumes if you prefer them over bind mounts
+  clothes_data:
+    driver: local
+
+networks:
+  default:
+    name: clothes-tracker-network

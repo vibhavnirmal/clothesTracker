@@ -1,9 +1,10 @@
 import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Calendar, Home, Plus, Waves } from 'lucide-react';
+import { Calendar, Home, Plus, Waves, Check } from 'lucide-react';
 import { ClothesCard } from './components/ClothesCard';
 import { AddClothesModal } from './components/AddClothesModal';
 import { WashClothes } from './components/WashClothes';
 import { Button } from './components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './components/ui/select';
 import {
   NavigationMenu,
   NavigationMenuItem,
@@ -13,6 +14,7 @@ import {
 import { Toaster } from './components/ui/sonner';
 import type { AddClothesPayload, ClothesItem, WearRecord, WashRecord } from './types';
 import { createClothes, fetchSnapshot, recordWash, recordWear, undoWear, updateClothes } from './lib/api';
+import { getColorName } from './lib/colors';
 
 type TabType = 'home' | 'add' | 'wash' | 'timeline';
 
@@ -39,6 +41,8 @@ export default function App() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [isConfirmingOutfit, setIsConfirmingOutfit] = useState(false);
   const [editingClothes, setEditingClothes] = useState<ClothesItem | null>(null);
+  const [typeFilter, setTypeFilter] = useState('');
+  const [colorFilter, setColorFilter] = useState('');
   const undoingWearIdsRef = useRef<Set<string>>(new Set());
 
   const today = new Date().toISOString().split('T')[0];
@@ -73,6 +77,56 @@ export default function App() {
 
     return status;
   }, [wearRecords, today]);
+
+  const availableTypes = useMemo(() => {
+    const unique = new Set<string>();
+    clothes.forEach(item => {
+      if (item.type?.trim()) {
+        unique.add(item.type.trim());
+      }
+    });
+    return Array.from(unique).sort((a, b) => a.localeCompare(b));
+  }, [clothes]);
+
+  const availableColors = useMemo(() => {
+    const unique = new Map<string, { value: string; label: string }>();
+    clothes.forEach(item => {
+      if (!item.color) return;
+
+      const normalized = item.color.trim().toUpperCase();
+      if (!normalized) return;
+
+      if (!unique.has(normalized)) {
+        unique.set(normalized, {
+          value: normalized,
+          label: getColorName(item.color),
+        });
+      }
+    });
+
+    return Array.from(unique.values()).sort((a, b) => a.label.localeCompare(b.label));
+  }, [clothes]);
+
+  useEffect(() => {
+    if (typeFilter && !availableTypes.includes(typeFilter)) {
+      setTypeFilter('');
+    }
+  }, [typeFilter, availableTypes]);
+
+  useEffect(() => {
+    if (colorFilter && !availableColors.some(option => option.value === colorFilter)) {
+      setColorFilter('');
+    }
+  }, [colorFilter, availableColors]);
+
+  const filteredClothes = useMemo(() => {
+    return clothes.filter(item => {
+      const matchesType = !typeFilter || item.type === typeFilter;
+      const itemColor = item.color?.trim().toUpperCase() ?? '';
+      const matchesColor = !colorFilter || itemColor === colorFilter;
+      return matchesType && matchesColor;
+    });
+  }, [clothes, typeFilter, colorFilter]);
 
   const loadSnapshot = useCallback(async () => {
     setIsLoading(true);
@@ -246,44 +300,112 @@ export default function App() {
     switch (activeTab) {
       case 'home':
         return (
-          <div style={{ paddingBottom: '9rem' }}>
-            <div className="p-4 pb-36">
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                {clothes.map(item => {
-                  const status = wearStatus.get(item.id);
-
-                  return (
-                    <ClothesCard
-                      key={item.id}
-                      item={item}
-                      selected={selectedForWearing.has(item.id)}
-                      onToggle={(nextChecked) => {
-                        void handleToggleClothes(item, nextChecked);
-                      }}
-                      badgeColor={getWearCountBadgeColor(item.wearsSinceWash)}
-                      wornToday={status?.wornToday ?? false}
-                      lastWearDate={status?.lastWearDate}
-                      onEdit={() => {
-                        resetActionError();
-                        setEditingClothes(item);
-                      }}
-                    />
-                  );
-                })}
+          <div style={{ paddingBottom: '5rem' }}>
+            <div className="pt-4 flex items-center justify-around">
+              <div className="text-center text-xl font-semibold font-sans text-gray-700">
+              What are you wearing today (
+              {(() => {
+                const d = new Date();
+                const mm = String(d.getMonth() + 1).padStart(2, '0');
+                const dd = String(d.getDate()).padStart(2, '0');
+                return `${mm}/${dd}`;
+              })()})&nbsp;?
               </div>
+            </div>
+            <div className="p-4">
+              <div className="relative w-full z-50 flex flex-wrap justify-around items-center rounded-sm mb-4" style={{ backgroundColor: 'rgba(87, 87, 87, 0.95)', padding: '0.5rem' }}>
+                <div className="font-medium mr-2 text-white">
+                  Filters: 
+                </div>
+                <div className="">
+                  <Select
+                    value={typeFilter || 'all'}
+                    onValueChange={value => setTypeFilter(value === 'all' ? '' : value)}
+                  >
+                    <SelectTrigger size="sm" className="min-w-[140px]">
+                      <SelectValue placeholder="All types" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All types</SelectItem>
+                      {availableTypes.map(type => (
+                        <SelectItem key={type} value={type}>
+                          {type}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="">
+                  <Select
+                    value={colorFilter || 'all'}
+                    onValueChange={value => setColorFilter(value === 'all' ? '' : value)}
+                    disabled={availableColors.length === 0}
+                  >
+                    <SelectTrigger size="sm" className="min-w-[140px]">
+                      <SelectValue placeholder="All colors" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All colors</SelectItem>
+                      {availableColors.map(option => (
+                        <SelectItem key={option.value} value={option.value}>
+                          <span className="flex items-center gap-2">
+                            <span
+                              className="h-3 w-3 rounded-full border border-gray-300"
+                              style={{ backgroundColor: option.value }}
+                            />
+                            {option.label}
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {filteredClothes.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-gray-300 bg-white/60 p-6 text-center text-sm text-gray-500">
+                  No clothes match your current filters.
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {filteredClothes.map(item => {
+                    const status = wearStatus.get(item.id);
+
+                    return (
+                      <ClothesCard
+                        key={item.id}
+                        item={item}
+                        selected={selectedForWearing.has(item.id)}
+                        onToggle={(nextChecked) => {
+                          void handleToggleClothes(item, nextChecked);
+                        }}
+                        badgeColor={getWearCountBadgeColor(item.wearsSinceWash)}
+                        wornToday={status?.wornToday ?? false}
+                        lastWearDate={status?.lastWearDate}
+                        onEdit={() => {
+                          resetActionError();
+                          setEditingClothes(item);
+                        }}
+                      />
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             {selectedForWearing.size > 0 && (
-              <div className="mx-4">
-                <div className="z-40 p-4 rounded-md bg-white border border-gray-200 shadow-lg">
+              <div className="fixed right-2" style={{ bottom: '6.5rem' }}>
                   <Button
                     onClick={() => void confirmTodaysOutfit()}
-                    className="w-full"
+                    className="rounded-none rounded-sm text-lg p-6"
+                    style={{ whiteSpace: 'pre-line', backgroundColor: '#378a00ff', color: 'white' }}
                     disabled={isConfirmingOutfit}
                   >
-                    Confirm Today's Outfit ({selectedForWearing.size} items)
+                    {/* icon checkmark */}
+                    {selectedForWearing.size === 1 ? "1 item" : `${selectedForWearing.size} items`}
+                    <Check className="mr-2 inline-block h-4 w-4" />
                   </Button>
-                </div>
               </div>
             )}
           </div>
@@ -376,7 +498,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-100 pb-28">
+    <div className="min-h-screen pb-28">
       <Toaster />
       {renderContent()}
 
