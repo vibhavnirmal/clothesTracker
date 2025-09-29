@@ -41,6 +41,18 @@ export function ClothingForm({
     const [imageChanged, setImageChanged] = useState(false);
     const processingImageRef = useRef(false);
     const imageInputRef = useRef<HTMLInputElement | null>(null);
+    const openFilePicker = (capture?: 'environment' | 'user') => {
+        const input = imageInputRef.current;
+        if (!input) return;
+
+        if (capture) {
+            input.setAttribute('capture', capture);
+        } else {
+            input.removeAttribute('capture');
+        }
+
+        input.click();
+    };
 
     const availableTypeOptions = useMemo(() => {
         const unique = new Set<string>();
@@ -227,10 +239,18 @@ export function ClothingForm({
                     <Button
                         type="button"
                         variant="outline"
-                        onClick={() => imageInputRef.current?.click()}
+                        onClick={() => openFilePicker('environment')}
                         disabled={isProcessingImage}
                     >
-                        Choose image
+                        Take photo
+                    </Button>
+                    <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => openFilePicker()}
+                        disabled={isProcessingImage}
+                    >
+                        Choose from gallery
                     </Button>
                     {formData.image && (
                         <Button
@@ -251,9 +271,8 @@ export function ClothingForm({
                     ref={imageInputRef}
                     type="file"
                     accept="image/*"
-                    capture="environment"
                     onChange={handleImageUpload}
-                    className="hidden"
+                    style={{ display: 'none' }}
                 />
                 {(isProcessingImage || imageError || formData.image) && (
                     <div className="mt-2 space-y-2">
