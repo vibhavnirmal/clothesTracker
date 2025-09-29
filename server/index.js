@@ -36,11 +36,18 @@ db.exec(`
     date TEXT NOT NULL,
     FOREIGN KEY (clothes_id) REFERENCES clothes(id) ON DELETE CASCADE
   );
+
+  CREATE TABLE IF NOT EXISTS clothing_types (
+    name TEXT PRIMARY KEY COLLATE NOCASE,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S', 'now'))
+  );
 `);
 
-const ALLOWED_CLOTHING_TYPES = new Set([
-  'Shirt',
-  'T-Shirt',
+const DEFAULT_CLOTHING_TYPES = [
+  'Shirt - Full Sleeve',
+  'Shirt - Half Sleeve',
+  'T-Shirt - Short Sleeve',
+  'T-Shirt - Long Sleeve',
   'Pants',
   'Jeans',
   'Shorts',
@@ -56,7 +63,12 @@ const ALLOWED_CLOTHING_TYPES = new Set([
   'Boots',
   'Sandals',
   'Slippers',
-]);
+];
+
+const insertDefaultClothingType = db.prepare('INSERT OR IGNORE INTO clothing_types (name) VALUES (?)');
+DEFAULT_CLOTHING_TYPES.forEach(type => {
+  insertDefaultClothingType.run(type);
+});
 
 const MAX_NAME_LENGTH = 80;
 const MAX_TYPE_LENGTH = 40;
@@ -92,6 +104,12 @@ const insertWashRecord = db.prepare(`
   INSERT INTO wash_records (id, clothes_id, date)
   VALUES (@id, @clothesId, @date)
 `);
+
+const selectAllClothingTypes = db.prepare('SELECT name FROM clothing_types ORDER BY name COLLATE NOCASE');
+const selectClothingTypeExists = db.prepare('SELECT 1 FROM clothing_types WHERE name = ? COLLATE NOCASE');
+const selectClothesCountByType = db.prepare('SELECT COUNT(*) AS count FROM clothes WHERE type = ? COLLATE NOCASE');
+const insertClothingType = db.prepare('INSERT INTO clothing_types (name) VALUES (?)');
+const deleteClothingTypeByName = db.prepare('DELETE FROM clothing_types WHERE name = ? COLLATE NOCASE');
 
 const selectClothesById = db.prepare('SELECT id FROM clothes WHERE id = ?');
 const selectClothesRowById = db.prepare('SELECT * FROM clothes WHERE id = ?');
@@ -172,6 +190,10 @@ function getSnapshot() {
   };
 }
 
+function getClothingTypes() {
+  return selectAllClothingTypes.all().map(row => row.name);
+}
+
 function isNonEmptyString(value, maxLength) {
   if (typeof value !== 'string') return false;
   const trimmed = value.trim();
@@ -180,7 +202,11 @@ function isNonEmptyString(value, maxLength) {
 
 function isValidClothingType(value) {
   if (typeof value !== 'string') return false;
-  return ALLOWED_CLOTHING_TYPES.has(value.trim());
+  const trimmed = value.trim();
+  if (trimmed.length === 0 || trimmed.length > MAX_TYPE_LENGTH) {
+    return false;
+  }
+  return Boolean(selectClothingTypeExists.get(trimmed));
 }
 
 function isValidHexColor(value) {
@@ -242,7 +268,7 @@ function normalizeClothesPayload(payload, options = {}) {
   }
 
   if (!isNonEmptyString(type, MAX_TYPE_LENGTH) || !isValidClothingType(type)) {
-    errors.push('Type must be one of the supported clothing categories.');
+    errors.push('Type must match one of your saved clothing categories.');
   }
 
   if (!isValidHexColor(color)) {
@@ -296,6 +322,68 @@ function normalizeClothesPayload(payload, options = {}) {
 
 app.get('/api/state', (_req, res) => {
   res.json(getSnapshot());
+});
+
+app.get('/api/types', (_req, res) => {
+  res.json({ types: getClothingTypes() });
+});
+
+app.post('/api/types', (req, res) => {
+  const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+
+  if (!isNonEmptyString(name, MAX_TYPE_LENGTH)) {
+    return res.status(400).json({
+      message: 'Type name must be a non-empty string up to 40 characters.',
+    });
+  }
+
+  if (selectClothingTypeExists.get(name)) {
+    return res.status(409).json({
+      message: 'A clothing type with this name already exists.',
+    });
+  }
+
+  try {
+    insertClothingType.run(name);
+  } catch (error) {
+    console.error('Failed to insert clothing type', error);
+    return res.status(500).json({ message: 'Failed to add clothing type' });
+  }
+
+  res.status(201).json({ types: getClothingTypes() });
+});
+
+app.delete('/api/types/:name', (req, res) => {
+  const rawName = typeof req.params?.name === 'string' ? req.params.name : '';
+  const name = rawName.trim();
+
+  if (!isNonEmptyString(name, MAX_TYPE_LENGTH)) {
+    return res.status(400).json({
+      message: 'Type name must be a non-empty string up to 40 characters.',
+    });
+  }
+
+  if (!selectClothingTypeExists.get(name)) {
+    return res.status(404).json({
+      message: 'Clothing type not found.',
+    });
+  }
+
+  const usage = selectClothesCountByType.get(name);
+  if ((usage?.count ?? 0) > 0) {
+    return res.status(409).json({
+      message: 'Cannot delete a clothing type that is used by existing items.',
+    });
+  }
+
+  try {
+    deleteClothingTypeByName.run(name);
+  } catch (error) {
+    console.error('Failed to delete clothing type', error);
+    return res.status(500).json({ message: 'Failed to delete clothing type' });
+  }
+
+  res.json({ types: getClothingTypes() });
 });
 
 app.post('/api/clothes', (req, res) => {

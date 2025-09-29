@@ -41,6 +41,23 @@ export function updateClothes(id: string, payload: AddClothesPayload): JsonRespo
   });
 }
 
+export function fetchClothingTypes(): JsonResponse<{ types: string[] }> {
+  return request<{ types: string[] }>('/types');
+}
+
+export function createClothingType(name: string): JsonResponse<{ types: string[] }> {
+  return request<{ types: string[] }>('/types', {
+    method: 'POST',
+    body: JSON.stringify({ name }),
+  });
+}
+
+export function deleteClothingType(name: string): JsonResponse<{ types: string[] }> {
+  return request<{ types: string[] }>(`/types/${encodeURIComponent(name)}`, {
+    method: 'DELETE',
+  });
+}
+
 export function recordWear(clothesIds: string[]): JsonResponse<Pick<AppSnapshot, 'clothes' | 'wearRecords'>> {
   return request('/wears', {
     method: 'POST',

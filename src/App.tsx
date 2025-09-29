@@ -1,7 +1,8 @@
 import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Calendar, Home, PieChart, Plus, Waves, Check } from 'lucide-react';
+import { Calendar, Home, PieChart, Settings as SettingsIcon, Waves, Check } from 'lucide-react';
 import { ClothesCard } from './components/ClothesCard';
 import { AddClothesModal } from './components/AddClothesModal';
+import { AddClothesPage } from './components/AddClothesPage';
 import { WashClothes } from './components/WashClothes';
 import { Button } from './components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './components/ui/select';
@@ -13,10 +14,19 @@ import {
 } from './components/ui/navigation-menu';
 import { Toaster } from './components/ui/sonner';
 import type { AddClothesPayload, ClothesItem, WearRecord, WashRecord } from './types';
-import { createClothes, fetchSnapshot, recordWash, recordWear, undoWear, updateClothes } from './lib/api';
+import {
+  createClothes,
+  fetchClothingTypes,
+  fetchSnapshot,
+  recordWash,
+  recordWear,
+  undoWear,
+  updateClothes,
+} from './lib/api';
 import { getColorName } from './lib/colors';
+import type { SettingsSection } from './components/Settings';
 
-type TabType = 'home' | 'add' | 'wash' | 'timeline' | 'analysis';
+type TabType = 'home' | 'add' | 'wash' | 'timeline' | 'analysis' | 'settings';
 
 const Timeline = lazy(async () => {
   const module = await import('./components/Timeline');
@@ -28,12 +38,14 @@ const Analysis = lazy(async () => {
   return { default: module.Analysis };
 });
 
+const SettingsPage = lazy(async () => import('./components/Settings'));
+
 const NAV_ITEMS: Array<{ id: TabType; icon: typeof Home; label: string }> = [
   { id: 'home', icon: Home, label: 'Home' },
-  { id: 'add', icon: Plus, label: 'Add' },
   { id: 'wash', icon: Waves, label: 'Wash' },
   { id: 'timeline', icon: Calendar, label: 'Timeline' },
   { id: 'analysis', icon: PieChart, label: 'Analysis' },
+  { id: 'settings', icon: SettingsIcon, label: 'Settings' },
 ];
 
 export default function App() {
@@ -47,8 +59,11 @@ export default function App() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [isConfirmingOutfit, setIsConfirmingOutfit] = useState(false);
   const [editingClothes, setEditingClothes] = useState<ClothesItem | null>(null);
+  const [clothingTypes, setClothingTypes] = useState<string[]>([]);
   const [typeFilter, setTypeFilter] = useState('');
   const [colorFilter, setColorFilter] = useState('');
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>('overview');
+  const [postAddRedirectTab, setPostAddRedirectTab] = useState<TabType>('home');
   const undoingWearIdsRef = useRef<Set<string>>(new Set());
 
   const today = new Date().toISOString().split('T')[0];
@@ -84,6 +99,20 @@ export default function App() {
     return status;
   }, [wearRecords, today]);
 
+  const loadClothingTypes = useCallback(async () => {
+    try {
+      const { types } = await fetchClothingTypes();
+      setClothingTypes(types);
+    } catch (err) {
+      console.error('Failed to load clothing types', err);
+    }
+  }, []);
+
+
+  const handleTypesUpdated = useCallback((types: string[]) => {
+    setClothingTypes(types);
+  }, []);
+
   const availableTypes = useMemo(() => {
     const unique = new Set<string>();
     clothes.forEach(item => {
@@ -111,6 +140,16 @@ export default function App() {
     });
 
     return Array.from(unique.values()).sort((a, b) => a.label.localeCompare(b.label));
+  }, [clothes]);
+
+  const clothingTypeUsage = useMemo(() => {
+    const counts: Record<string, number> = {};
+    clothes.forEach(item => {
+      const type = typeof item.type === 'string' ? item.type.trim() : '';
+      if (!type) return;
+      counts[type] = (counts[type] ?? 0) + 1;
+    });
+    return counts;
   }, [clothes]);
 
   useEffect(() => {
@@ -152,7 +191,8 @@ export default function App() {
 
   useEffect(() => {
     void loadSnapshot();
-  }, [loadSnapshot]);
+    void loadClothingTypes();
+  }, [loadSnapshot, loadClothingTypes]);
 
   useEffect(() => {
     setSelectedForWearing(prev => {
@@ -179,7 +219,19 @@ export default function App() {
     });
   }, [wearStatus]);
 
+  useEffect(() => {
+    if (activeTab === 'settings') {
+      void loadClothingTypes();
+    }
+  }, [activeTab, loadClothingTypes]);
+
   const resetActionError = useCallback(() => setActionError(null), []);
+
+  const openAddPage = useCallback((redirectTab: TabType) => {
+    setPostAddRedirectTab(redirectTab);
+    setActiveTab('add');
+    resetActionError();
+  }, [resetActionError]);
 
   const getWearCountBadgeColor = (count: number) => {
     if (count <= 1) return 'bg-green-500';
@@ -413,7 +465,7 @@ export default function App() {
                   <Button
                     onClick={() => void confirmTodaysOutfit()}
                     className="rounded-none rounded-sm text-lg p-6"
-                    style={{ backgroundColor: '#4d4d4daf', color: 'white' }}
+                    style={{ backgroundColor: '#42882dee', color: 'white' }}
                     disabled={isConfirmingOutfit}
                   >
                     &nbsp;&nbsp;&nbsp;Confirm:
@@ -428,13 +480,29 @@ export default function App() {
 
       case 'add':
         return (
-          <div className="p-4 pb-36">
-            <AddClothesModal
-              isOpen={true}
-              onClose={() => setActiveTab('home')}
-              onSubmit={handleAddClothes}
-            />
-          </div>
+          <AddClothesPage
+            typeOptions={clothingTypes}
+            onSubmit={handleAddClothes}
+            onCancel={() => {
+              if (postAddRedirectTab === 'settings') {
+                setSettingsSection('overview');
+              }
+              setActiveTab(postAddRedirectTab);
+              resetActionError();
+            }}
+            onManageTypes={() => {
+              setSettingsSection('clothingTypes');
+              setActiveTab('settings');
+              resetActionError();
+            }}
+            onSubmitSuccess={() => {
+              if (postAddRedirectTab === 'settings') {
+                setSettingsSection('overview');
+              }
+              setActiveTab(postAddRedirectTab);
+              resetActionError();
+            }}
+          />
         );
 
       case 'wash':
@@ -442,7 +510,6 @@ export default function App() {
           <WashClothes
             clothes={clothes}
             onMarkWashed={markAsWashed}
-            onBack={() => setActiveTab('home')}
           />
         );
 
@@ -476,6 +543,31 @@ export default function App() {
               clothes={clothes}
               wearRecords={wearRecords}
               washRecords={washRecords}
+            />
+          </Suspense>
+        );
+
+      case 'settings':
+        return (
+          <Suspense
+            fallback={(
+              <div className="flex h-[calc(100vh-6rem)] items-center justify-center text-gray-600">
+                Opening settings...
+              </div>
+            )}
+          >
+            <SettingsPage
+              types={clothingTypes}
+              onTypesUpdated={handleTypesUpdated}
+              onBack={() => {
+                setSettingsSection('overview');
+                setActiveTab('analysis');
+                resetActionError();
+              }}
+              activeSection={settingsSection}
+              onSectionChange={setSettingsSection}
+              typeUsage={clothingTypeUsage}
+              onCreateClothing={() => openAddPage('settings')}
             />
           </Suspense>
         );
@@ -538,7 +630,7 @@ export default function App() {
         isOpen={Boolean(editingClothes)}
         onClose={() => setEditingClothes(null)}
         onSubmit={handleUpdateClothes}
-        title="Edit Clothing"
+        title={`Edit ${editingClothes?.type}`}
         submitLabel="Save Changes"
         initialValues={editingClothes ? {
           name: editingClothes.name,
@@ -547,6 +639,13 @@ export default function App() {
           dateOfPurchase: editingClothes.dateOfPurchase ?? '',
           image: editingClothes.image ?? '',
         } : undefined}
+        typeOptions={clothingTypes}
+        onManageTypes={() => {
+          setEditingClothes(null);
+          setSettingsSection('clothingTypes');
+          setActiveTab('settings');
+          resetActionError();
+        }}
       />
 
       <nav className="fixed inset-x-0 w-full bottom-0 z-30 bg-white border-t border-gray-200 shadow-lg">
@@ -561,6 +660,12 @@ export default function App() {
                     <button
                       type="button"
                       onClick={() => {
+                        if (id === 'settings') {
+                          setSettingsSection('overview');
+                        }
+                        if (id !== 'add') {
+                          setPostAddRedirectTab('home');
+                        }
                         setActiveTab(id);
                         resetActionError();
                       }}

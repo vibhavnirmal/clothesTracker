@@ -4,6 +4,7 @@ import { Button } from './ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import type { ClothesItem, WearRecord, WashRecord } from '../types';
 import { getColorName } from '../lib/colors';
+import { addDays, compareIsoDatesDesc, formatIsoDate, parseIsoDateToLocal, startOfToday } from '../lib/date';
 
 const NEEDS_WASH_THRESHOLD = 4;
 
@@ -95,7 +96,7 @@ export function Timeline({ clothes, wearRecords, washRecords }: TimelineProps) {
           .sort((a, b) => a.item.name.localeCompare(b.item.name)),
         wash: Array.from(bucket.wash.values()).sort((a, b) => a.name.localeCompare(b.name)),
       }))
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      .sort((a, b) => compareIsoDatesDesc(a.date, b.date));
 
     let mostWornItem: { item: ClothesItem; count: number } | null = null;
     wearCountMap.forEach((count, id) => {
@@ -127,44 +128,55 @@ export function Timeline({ clothes, wearRecords, washRecords }: TimelineProps) {
   }, [clothes, wearRecords, washRecords, filterType, filterColor]);
 
   const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    const today = new Date();
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-
-    if (date.toDateString() === today.toDateString()) {
-      return 'Today';
-    } else if (date.toDateString() === yesterday.toDateString()) {
-      return 'Yesterday';
-    } else {
-      return date.toLocaleDateString('en-US', { 
-        weekday: 'short', 
-        month: 'short', 
-        day: 'numeric' 
-      });
+    const date = parseIsoDateToLocal(dateString);
+    if (!date) {
+      return dateString;
     }
+
+    const today = startOfToday();
+    const yesterday = addDays(today, -1);
+
+    if (date.getTime() === today.getTime()) {
+      return 'Today';
+    }
+
+    if (date.getTime() === yesterday.getTime()) {
+      return 'Yesterday';
+    }
+
+    return date.toLocaleDateString('en-US', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+    });
   };
 
   const rangeLabel = useMemo(() => {
     if (timeline.length === 0) return '';
 
-    const newest = new Date(timeline[0].date);
-    const oldest = new Date(timeline[timeline.length - 1].date);
-    const sameDay = newest.toDateString() === oldest.toDateString();
-    const includeYear = newest.getFullYear() !== oldest.getFullYear();
+    const newest = parseIsoDateToLocal(timeline[0].date);
+    const oldest = parseIsoDateToLocal(timeline[timeline.length - 1].date);
 
-    const format = (date: Date) =>
-      date.toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        ...(includeYear ? { year: 'numeric' } : {}),
-      });
-
-    if (sameDay) {
-      return format(newest);
+    if (!newest || !oldest) {
+      return '';
     }
 
-    return `${format(oldest)} – ${format(newest)}`;
+    const sameDay = newest.getTime() === oldest.getTime();
+    const includeYear = newest.getFullYear() !== oldest.getFullYear();
+
+    const formatOptions: Intl.DateTimeFormatOptions = {
+      month: 'short',
+      day: 'numeric',
+      ...(includeYear ? { year: 'numeric' } : {}),
+    };
+
+    if (sameDay) {
+      return formatIsoDate(timeline[0].date, formatOptions, 'en-US');
+    }
+
+    const rangeStart = formatIsoDate(timeline[timeline.length - 1].date, formatOptions, 'en-US');
+    const rangeEnd = formatIsoDate(timeline[0].date, formatOptions, 'en-US');
+    return `${rangeStart} – ${rangeEnd}`;
   }, [timeline]);
 
   const formatLastWash = (item: ClothesItem) => {
@@ -172,11 +184,11 @@ export function Timeline({ clothes, wearRecords, washRecords }: TimelineProps) {
       return 'No wash recorded yet';
     }
 
-    return new Date(item.lastWashDate).toLocaleDateString('en-US', {
+    return formatIsoDate(item.lastWashDate, {
       month: 'short',
       day: 'numeric',
       year: 'numeric',
-    });
+    }, 'en-US');
   };
 
   const clearFilters = () => {
@@ -335,11 +347,11 @@ export function Timeline({ clothes, wearRecords, washRecords }: TimelineProps) {
                       </p>
                     </div>
                     <span className="text-xs text-gray-400">
-                      {new Date(day.date).toLocaleDateString('en-US', {
+                      {formatIsoDate(day.date, {
                         month: 'short',
                         day: 'numeric',
                         year: 'numeric',
-                      })}
+                      }, 'en-US')}
                     </span>
                   </div>
 

@@ -5,14 +5,15 @@ import { Checkbox } from './ui/checkbox';
 import { toast } from './ui/sonner';
 import { ImageWithFallback } from './ImageWithFallback';
 import type { ClothesItem } from '../types';
+import { differenceInCalendarDays, formatIsoDate, parseIsoDateToLocal, startOfToday } from '../lib/date';
 
 interface WashClothesProps {
   clothes: ClothesItem[];
   onMarkWashed: (clothesIds: string[]) => Promise<void> | void;
-  onBack: () => void;
+  // onBack: () => void;
 }
 
-export function WashClothes({ clothes, onMarkWashed, onBack }: WashClothesProps) {
+export function WashClothes({ clothes, onMarkWashed }: WashClothesProps) {
   const [selectedForWashing, setSelectedForWashing] = useState<Set<string>>(new Set());
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -85,20 +86,21 @@ export function WashClothes({ clothes, onMarkWashed, onBack }: WashClothesProps)
   const describeLastWash = (lastWashDate?: string) => {
     if (!lastWashDate) return 'Never washed yet';
 
-    const parsedDate = new Date(`${lastWashDate}T00:00:00Z`);
-    if (Number.isNaN(parsedDate.getTime())) {
-      return `Last washed: ${lastWashDate}`;
+    const parsedDate = parseIsoDateToLocal(lastWashDate);
+    if (!parsedDate) {
+      return `Last washed: ${formatIsoDate(lastWashDate, {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      })}`;
     }
 
-    const today = new Date();
-    today.setUTCHours(0, 0, 0, 0);
+    const today = startOfToday();
+    const diffDays = differenceInCalendarDays(parsedDate, today);
 
-    const diffMs = today.getTime() - parsedDate.getTime();
-    if (diffMs <= 0) {
+    if (diffDays <= 0) {
       return 'Last washed today';
     }
-
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
     if (diffDays < 30) {
       return diffDays === 1 ? 'Last washed 1 day ago' : `Last washed ${diffDays} days ago`;
@@ -132,9 +134,9 @@ export function WashClothes({ clothes, onMarkWashed, onBack }: WashClothesProps)
     <div className="p-4 pb-36" style={{ paddingBottom: '9rem' }}>
       {/* Header */}
       <div className="flex items-center gap-3 mb-6">
-        <Button variant="ghost" size="sm" onClick={onBack}>
+        {/* <Button variant="ghost" size="sm" onClick={onBack}>
           <ArrowLeft className="w-4 h-4" />
-        </Button>
+        </Button> */}
         <h1 className="flex items-center gap-2">
           <Droplets className="w-5 h-5 text-blue-500" />
           Wash Clothes
