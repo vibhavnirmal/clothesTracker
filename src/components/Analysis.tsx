@@ -16,18 +16,10 @@ interface ItemSummary {
 	averageWearsPerWash: number | null;
 }
 
-interface ColorTypeSummary {
-	type: string;
-	colorName: string;
-	colorValue: string;
-	count: number;
-}
-
 export function Analysis({ clothes, wearRecords, washRecords }: AnalysisProps) {
-	const { totals, perItemSummaries, topWorn, topWashed, colorTypeBreakdown } = useMemo(() => {
+	const { totals, perItemSummaries, topWorn, topWashed } = useMemo(() => {
 		const wearCountMap = new Map<string, number>();
 		const washCountMap = new Map<string, number>();
-		const combinationMap = new Map<string, ColorTypeSummary>();
 
 		wearRecords.forEach(record => {
 			wearCountMap.set(record.clothesId, (wearCountMap.get(record.clothesId) ?? 0) + 1);
@@ -43,22 +35,6 @@ export function Analysis({ clothes, wearRecords, washRecords }: AnalysisProps) {
 			const averageWearsPerWash = totalWashCount > 0
 				? Number((totalWearCount / totalWashCount).toFixed(1))
 				: (totalWearCount > 0 ? totalWearCount : null);
-
-			const type = item.type?.trim() || 'Uncategorised';
-			const colorName = getColorName(item.color);
-			const colorValue = item.color ?? '';
-			const combinationKey = `${type}__${colorName}`;
-
-			if (!combinationMap.has(combinationKey)) {
-				combinationMap.set(combinationKey, {
-					type,
-					colorName,
-					colorValue,
-					count: 0,
-				});
-			}
-
-			combinationMap.get(combinationKey)!.count += 1;
 
 			return {
 				item,
@@ -89,9 +65,6 @@ export function Analysis({ clothes, wearRecords, washRecords }: AnalysisProps) {
 			perItemSummaries,
 			topWorn: topWornItems,
 			topWashed: topWashedItems,
-			colorTypeBreakdown: Array.from(combinationMap.values()).sort((a, b) =>
-				a.type.localeCompare(b.type) || a.colorName.localeCompare(b.colorName)
-			),
 		};
 	}, [clothes, wearRecords, washRecords]);
 
@@ -244,45 +217,6 @@ export function Analysis({ clothes, wearRecords, washRecords }: AnalysisProps) {
 					</div>
 				</section>
 
-				{colorTypeBreakdown.length > 0 && (
-					<section className="mb-4">
-						<div className="rounded-xl border border-emerald-100 bg-white p-4 shadow-sm">
-							<div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-3">
-								<h2 className="text-sm font-semibold text-emerald-700">Type × Color coverage</h2>
-								<p className="text-xs text-gray-500">Only showing combinations that exist in your wardrobe.</p>
-							</div>
-							<div className="mt-3 overflow-x-auto">
-								<table className="min-w-full divide-y divide-gray-200 text-left text-sm">
-									<thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
-										<tr>
-											<th scope="col" className="px-3 py-2">Type</th>
-											<th scope="col" className="px-3 py-2">Color</th>
-											<th scope="col" className="px-3 py-2 text-right">Items</th>
-										</tr>
-									</thead>
-									<tbody className="divide-y divide-gray-100">
-										{colorTypeBreakdown.map(({ type, colorName, colorValue, count }) => (
-											<tr key={`${type}-${colorName}`} className="text-sm text-gray-700">
-												<td className="px-3 py-3 text-gray-600">{type}</td>
-												<td className="px-3 py-3">
-													<div className="flex items-center gap-2">
-														<span
-															className="h-3 w-3 rounded-full border border-gray-300"
-															style={{ backgroundColor: colorValue || '#e5e7eb' }}
-														/>
-														<span className="truncate" style={{ maxWidth: '8rem' }}>{colorName}</span>
-													</div>
-												</td>
-												<td className="px-3 py-3 text-right font-medium">{count}</td>
-											</tr>
-										))}
-									</tbody>
-								</table>
-							</div>
-						</div>
-					</section>
-				)}
-
 				<section className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
 					<div className="flex flex-col items-center justify-between gap-3 mb-4">
 						<h2 className="text-sm font-semibold text-blue-600">Per-item breakdown</h2>
@@ -365,42 +299,4 @@ export function Analysis({ clothes, wearRecords, washRecords }: AnalysisProps) {
 			</div>
 		</div>
 	);
-		{colorTypeBreakdown.length > 0 && (
-			<section className="mb-4">
-				<div className="rounded-xl border border-emerald-100 bg-white p-4 shadow-sm">
-					<div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-3">
-						<h2 className="text-sm font-semibold text-emerald-700">Type × Color coverage</h2>
-						<p className="text-xs text-gray-500">Only showing combinations that exist in your wardrobe.</p>
-					</div>
-					<div className="mt-3 overflow-x-auto">
-						<table className="min-w-full divide-y divide-gray-200 text-left text-sm">
-							<thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
-								<tr>
-									<th scope="col" className="px-3 py-2">Type</th>
-									<th scope="col" className="px-3 py-2">Color</th>
-									<th scope="col" className="px-3 py-2 text-right">Items</th>
-								</tr>
-							</thead>
-							<tbody className="divide-y divide-gray-100">
-								{colorTypeBreakdown.map(({ type, colorName, colorValue, count }) => (
-									<tr key={`${type}-${colorName}`} className="text-sm text-gray-700">
-										<td className="px-3 py-3 text-gray-600">{type}</td>
-										<td className="px-3 py-3">
-											<div className="flex items-center gap-2">
-												<span
-													className="h-3 w-3 rounded-full border border-gray-300"
-													style={{ backgroundColor: colorValue || '#e5e7eb' }}
-												/>
-												<span className="truncate" style={{ maxWidth: '8rem' }}>{colorName}</span>
-											</div>
-										</td>
-										<td className="px-3 py-3 text-right font-medium">{count}</td>
-									</tr>
-								))}
-							</tbody>
-						</table>
-					</div>
-				</div>
-			</section>
-		)}
 }
