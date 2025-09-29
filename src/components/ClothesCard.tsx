@@ -130,19 +130,19 @@ export function ClothesCard({
         </div>
       )}
       {/* Clothes info */}
-      <div className="flex justify-between items-center space-y-1">
-        <div className='items-start' style={{ paddingTop: '0.5rem' }}>
-          <h3 className="text-sm truncate">{item.name}</h3>
-          <p className="text-xs text-gray-600">{item.type}</p>
+      <div className="flex justify-between items-center">
+        <div className='items-start' style={{ paddingTop: '0.5rem', minWidth: 0 }}>
+          <h3 className="text-sm truncate overflow-hidden whitespace-nowrap w-full">{item.name}</h3>
+          <p className="text-xs text-gray-600 truncate">{item.type}</p>
         </div>
         <div className='items-end text-right'>
           {item.color && (
             <div className="flex items-center gap-2">
               <div 
-                className="w-3 h-3 rounded-full border border-gray-300"
-                style={{ backgroundColor: item.color }}
+                className="w-5 h-5 rounded-full border border-gray-300"
+                style={{ backgroundColor: item.color, marginLeft: '0.25rem', marginRight: '0.25rem' }}
               />
-              <span className="text-xs text-gray-600 capitalize">{getColorName(item.color)}</span>
+              {/* <span className="text-xs text-gray-600 capitalize">{getColorName(item.color)}</span> */}
             </div>
           )}
         </div>
