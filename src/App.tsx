@@ -413,9 +413,10 @@ export default function App() {
                   <Button
                     onClick={() => void confirmTodaysOutfit()}
                     className="rounded-none rounded-sm text-lg p-6"
-                    style={{ whiteSpace: 'pre-line', backgroundColor: '#378a00ff', color: 'white' }}
+                    style={{ backgroundColor: '#4d4d4daf', color: 'white' }}
                     disabled={isConfirmingOutfit}
                   >
+                    &nbsp;&nbsp;&nbsp;Confirm:
                     {/* icon checkmark */}
                     {selectedForWearing.size === 1 ? "1 item" : `${selectedForWearing.size} items`}
                     <Check className="mr-2 inline-block h-4 w-4" />
