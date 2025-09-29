@@ -4,6 +4,7 @@ export interface ClothesItem {
   type: string;
   color: string;
   image?: string;
+  dateOfPurchase?: string;
   wearsSinceWash: number;
   lastWashDate?: string;
 }
@@ -31,4 +32,5 @@ export interface AddClothesPayload {
   type: string;
   color: string;
   image?: string;
+  dateOfPurchase?: string;
 }

@@ -18,6 +18,7 @@ db.exec(`
     type TEXT NOT NULL,
     color TEXT,
     image TEXT,
+    date_of_purchase TEXT,
     wears_since_wash INTEGER NOT NULL DEFAULT 0,
     last_wash_date TEXT
   );
@@ -71,9 +72,15 @@ const clothesSelect = db.prepare('SELECT * FROM clothes ORDER BY name');
 const wearSelect = db.prepare('SELECT * FROM wear_records ORDER BY date DESC, id DESC');
 const washSelect = db.prepare('SELECT * FROM wash_records ORDER BY date DESC, id DESC');
 
+const clothesTableColumns = db.prepare('PRAGMA table_info(clothes)').all();
+const hasDateOfPurchaseColumn = clothesTableColumns.some(column => column.name === 'date_of_purchase');
+if (!hasDateOfPurchaseColumn) {
+  db.exec('ALTER TABLE clothes ADD COLUMN date_of_purchase TEXT');
+}
+
 const insertClothes = db.prepare(`
-  INSERT INTO clothes (id, name, type, color, image, wears_since_wash, last_wash_date)
-  VALUES (@id, @name, @type, @color, @image, 0, NULL)
+  INSERT INTO clothes (id, name, type, color, image, date_of_purchase, wears_since_wash, last_wash_date)
+  VALUES (@id, @name, @type, @color, @image, @dateOfPurchase, 0, NULL)
 `);
 
 const insertWearRecord = db.prepare(`
@@ -93,7 +100,8 @@ const updateClothesById = db.prepare(`
   SET name = @name,
       type = @type,
       color = @color,
-      image = @image
+      image = @image,
+      date_of_purchase = @dateOfPurchase
   WHERE id = @id
 `);
 
@@ -134,6 +142,7 @@ function serializeClothes(row) {
     type: row.type,
     color: row.color || '',
     image: row.image || undefined,
+    dateOfPurchase: row.date_of_purchase || undefined,
     wearsSinceWash: row.wears_since_wash,
     lastWashDate: row.last_wash_date || undefined,
   };
@@ -181,6 +190,23 @@ function isValidHexColor(value) {
   return /^#[0-9a-fA-F]{3,8}$/.test(value);
 }
 
+function isValidIsoDate(value) {
+  if (typeof value !== 'string') return false;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+
+  const [year, month, day] = value.split('-').map(component => Number.parseInt(component, 10));
+  if (Number.isNaN(year) || Number.isNaN(month) || Number.isNaN(day)) {
+    return false;
+  }
+
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+  );
+}
+
 function isUuid(value) {
   return typeof value === 'string' && /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/.test(value);
 }
@@ -204,6 +230,10 @@ function normalizeClothesPayload(payload, options = {}) {
   const name = typeof raw.name === 'string' ? raw.name.trim() : '';
   const type = typeof raw.type === 'string' ? raw.type.trim() : '';
   const color = typeof raw.color === 'string' ? raw.color.trim() : '';
+  const hasDateField = Object.prototype.hasOwnProperty.call(raw, 'dateOfPurchase');
+  const dateOfPurchaseInput = hasDateField && typeof raw.dateOfPurchase === 'string'
+    ? raw.dateOfPurchase.trim()
+    : '';
 
   const errors = [];
 
@@ -217,6 +247,17 @@ function normalizeClothesPayload(payload, options = {}) {
 
   if (!isValidHexColor(color)) {
     errors.push('Color must be a valid hex value such as #RRGGBB.');
+  }
+
+  if (dateOfPurchaseInput.length > 0) {
+    if (!isValidIsoDate(dateOfPurchaseInput)) {
+      errors.push('Date of purchase must be a valid date in YYYY-MM-DD format.');
+    } else {
+      const today = new Date().toISOString().split('T')[0];
+      if (dateOfPurchaseInput > today) {
+        errors.push('Date of purchase cannot be in the future.');
+      }
+    }
   }
 
   const hasImageField = Object.prototype.hasOwnProperty.call(raw, 'image');
@@ -247,8 +288,9 @@ function normalizeClothesPayload(payload, options = {}) {
 
   return {
     errors,
-    data: { name, type, color, image: normalizedImage },
+    data: { name, type, color, image: normalizedImage, dateOfPurchase: dateOfPurchaseInput },
     hasImageField,
+    hasDateField,
   };
 }
 
@@ -257,7 +299,7 @@ app.get('/api/state', (_req, res) => {
 });
 
 app.post('/api/clothes', (req, res) => {
-  const { errors, data, hasImageField } = normalizeClothesPayload(req.body, { allowOmittingImage: true });
+  const { errors, data } = normalizeClothesPayload(req.body, { allowOmittingImage: true });
 
   if (errors.length > 0) {
     return res.status(400).json({
@@ -267,7 +309,14 @@ app.post('/api/clothes', (req, res) => {
   }
 
   const id = randomUUID();
-  insertClothes.run({ id, ...data });
+  insertClothes.run({
+    id,
+    name: data.name,
+    type: data.type,
+    color: data.color,
+    image: typeof data.image === 'string' ? data.image : '',
+    dateOfPurchase: data.dateOfPurchase.length > 0 ? data.dateOfPurchase : null,
+  });
   const row = selectClothesRowById.get(id);
   res.status(201).json(serializeClothes(row));
 });
@@ -284,7 +333,7 @@ app.put('/api/clothes/:id', (req, res) => {
     return res.status(404).json({ message: 'Clothing item not found' });
   }
 
-  const { errors, data, hasImageField } = normalizeClothesPayload(req.body, { allowOmittingImage: true });
+  const { errors, data, hasImageField, hasDateField } = normalizeClothesPayload(req.body, { allowOmittingImage: true });
 
   if (errors.length > 0) {
     return res.status(400).json({
@@ -299,6 +348,9 @@ app.put('/api/clothes/:id', (req, res) => {
     type: data.type,
     color: data.color,
     image: hasImageField ? (data.image ?? '') : existing.image,
+    dateOfPurchase: hasDateField
+      ? (data.dateOfPurchase.length > 0 ? data.dateOfPurchase : null)
+      : existing.date_of_purchase,
   };
 
   updateClothesById.run(updatePayload);

@@ -1,5 +1,5 @@
 import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Calendar, Home, Plus, Waves, Check } from 'lucide-react';
+import { Calendar, Home, PieChart, Plus, Waves, Check } from 'lucide-react';
 import { ClothesCard } from './components/ClothesCard';
 import { AddClothesModal } from './components/AddClothesModal';
 import { WashClothes } from './components/WashClothes';
@@ -16,11 +16,16 @@ import type { AddClothesPayload, ClothesItem, WearRecord, WashRecord } from './t
 import { createClothes, fetchSnapshot, recordWash, recordWear, undoWear, updateClothes } from './lib/api';
 import { getColorName } from './lib/colors';
 
-type TabType = 'home' | 'add' | 'wash' | 'timeline';
+type TabType = 'home' | 'add' | 'wash' | 'timeline' | 'analysis';
 
 const Timeline = lazy(async () => {
   const module = await import('./components/Timeline');
   return { default: module.Timeline };
+});
+
+const Analysis = lazy(async () => {
+  const module = await import('./components/Analysis');
+  return { default: module.Analysis };
 });
 
 const NAV_ITEMS: Array<{ id: TabType; icon: typeof Home; label: string }> = [
@@ -28,6 +33,7 @@ const NAV_ITEMS: Array<{ id: TabType; icon: typeof Home; label: string }> = [
   { id: 'add', icon: Plus, label: 'Add' },
   { id: 'wash', icon: Waves, label: 'Wash' },
   { id: 'timeline', icon: Calendar, label: 'Timeline' },
+  { id: 'analysis', icon: PieChart, label: 'Analysis' },
 ];
 
 export default function App() {
@@ -190,6 +196,14 @@ export default function App() {
           return;
         }
 
+        const shouldUndoWear = typeof window === 'undefined'
+          ? true
+          : window.confirm('Do you want to mark it not worn today?');
+
+        if (!shouldUndoWear) {
+          return;
+        }
+
         if (undoingWearIdsRef.current.has(item.id)) {
           return;
         }
@@ -300,9 +314,8 @@ export default function App() {
     switch (activeTab) {
       case 'home':
         return (
-          <div style={{ paddingBottom: '5rem' }}>
-            <div className="pt-4 flex items-center justify-around">
-              <div className="text-center text-xl font-semibold font-sans text-gray-700">
+          <div className="" style={{ paddingBottom: '5rem' }}>
+            <div className="text-center text-xl font-semibold font-sans text-gray-700 mt-2">
               What are you wearing today (
               {(() => {
                 const d = new Date();
@@ -310,56 +323,57 @@ export default function App() {
                 const dd = String(d.getDate()).padStart(2, '0');
                 return `${mm}/${dd}`;
               })()})&nbsp;?
-              </div>
             </div>
             <div className="p-4">
-              <div className="relative w-full z-50 flex flex-wrap justify-around items-center rounded-sm mb-4" style={{ backgroundColor: 'rgba(87, 87, 87, 0.95)', padding: '0.5rem' }}>
-                <div className="font-medium mr-2 text-white">
+              <div className="relative w-full z-50 flex flex-wrap justify-between items-center rounded-sm mb-4">
+                <div className="font-medium mr-2 text-black">
                   Filters: 
                 </div>
-                <div className="">
-                  <Select
-                    value={typeFilter || 'all'}
-                    onValueChange={value => setTypeFilter(value === 'all' ? '' : value)}
-                  >
-                    <SelectTrigger size="sm" className="min-w-[140px]">
-                      <SelectValue placeholder="All types" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All types</SelectItem>
-                      {availableTypes.map(type => (
-                        <SelectItem key={type} value={type}>
-                          {type}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+                <div className='flex gap-2 flex-wrap'>
+                  <div className="">
+                    <Select
+                      value={typeFilter || 'all'}
+                      onValueChange={value => setTypeFilter(value === 'all' ? '' : value)}
+                    >
+                      <SelectTrigger size="sm" className="min-w-[140px]">
+                        <SelectValue placeholder="All types" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All types</SelectItem>
+                        {availableTypes.map(type => (
+                          <SelectItem key={type} value={type}>
+                            {type}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
 
-                <div className="">
-                  <Select
-                    value={colorFilter || 'all'}
-                    onValueChange={value => setColorFilter(value === 'all' ? '' : value)}
-                    disabled={availableColors.length === 0}
-                  >
-                    <SelectTrigger size="sm" className="min-w-[140px]">
-                      <SelectValue placeholder="All colors" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All colors</SelectItem>
-                      {availableColors.map(option => (
-                        <SelectItem key={option.value} value={option.value}>
-                          <span className="flex items-center gap-2">
-                            <span
-                              className="h-3 w-3 rounded-full border border-gray-300"
-                              style={{ backgroundColor: option.value }}
-                            />
-                            {option.label}
-                          </span>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <div className="">
+                    <Select
+                      value={colorFilter || 'all'}
+                      onValueChange={value => setColorFilter(value === 'all' ? '' : value)}
+                      disabled={availableColors.length === 0}
+                    >
+                      <SelectTrigger size="sm" className="min-w-[140px]">
+                        <SelectValue placeholder="All colors" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All colors</SelectItem>
+                        {availableColors.map(option => (
+                          <SelectItem key={option.value} value={option.value}>
+                            <span className="flex items-center gap-2">
+                              <span
+                                className="h-3 w-3 rounded-full border border-gray-300"
+                                style={{ backgroundColor: option.value }}
+                              />
+                              {option.label}
+                            </span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
               </div>
 
@@ -448,6 +462,23 @@ export default function App() {
           </Suspense>
         );
 
+      case 'analysis':
+        return (
+          <Suspense
+            fallback={(
+              <div className="flex h-[calc(100vh-6rem)] items-center justify-center text-gray-600">
+                Crunching wardrobe stats...
+              </div>
+            )}
+          >
+            <Analysis
+              clothes={clothes}
+              wearRecords={wearRecords}
+              washRecords={washRecords}
+            />
+          </Suspense>
+        );
+
       default:
         return null;
     }
@@ -512,6 +543,7 @@ export default function App() {
           name: editingClothes.name,
           type: editingClothes.type,
           color: editingClothes.color,
+          dateOfPurchase: editingClothes.dateOfPurchase ?? '',
           image: editingClothes.image ?? '',
         } : undefined}
       />

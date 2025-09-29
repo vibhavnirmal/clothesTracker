@@ -92,17 +92,11 @@ export function ClothesCard({
             event.stopPropagation();
             onEdit();
           }}
-          className="absolute top-1 left-1 inline-flex items-center justify-center bg-gray-100 p-1 text-gray-500 transition hover:border-gray-300 hover:text-gray-700"
+          className="absolute bottom-0 right-0 items-center justify-center p-1 text-gray-500 transition hover:border-gray-300 hover:text-gray-700"
           aria-label={`Edit ${item.name}`}
         >
           <Pencil className="h-3.5 w-3.5" />
         </button>
-      )}
-      {/* Wear count badge */}
-      {item.wearsSinceWash >= 1 && (
-        <div className={`absolute -top-2 -right-2 ${badgeColor} text-white w-8 h-8 flex items-center justify-center text-sm font-bold`}>
-          {item.wearsSinceWash}
-        </div>
       )}
 
       {/* Image or initials placeholder */}
@@ -111,7 +105,7 @@ export function ClothesCard({
           <ImageWithFallback
             src={item.image}
             alt={item.name}
-            className="w-full h-32 object-cover "
+            className="w-full h-32 object-cover"
           />
         ) : (
           <div 
@@ -123,6 +117,18 @@ export function ClothesCard({
         )}
       </div>
 
+      {/* Wear count badge */}
+      {item.wearsSinceWash >= 1 && (
+        <div className={`relative border border-gray-600 ${badgeColor} text-white w-full flex items-center justify-center text-sm font-bold`}>
+          Wears since wash: {item.wearsSinceWash}
+        </div>
+      )}
+
+      {!item.wearsSinceWash && (
+        <div className={`relative text-gray-500 w-full flex items-center justify-center text-sm`}>
+          No wears since wash
+        </div>
+      )}
       {/* Clothes info */}
       <div className="flex justify-between items-center space-y-1">
         <div className='items-start' style={{ paddingTop: '0.5rem' }}>

@@ -30,6 +30,7 @@ function buildInitialForm(values?: Partial<AddClothesPayload>): AddClothesPayloa
     name: values?.name ?? '',
     type: values?.type ?? '',
     color: values?.color ?? '',
+    dateOfPurchase: values?.dateOfPurchase ?? '',
     image: values?.image ?? '',
   };
 }
@@ -38,8 +39,8 @@ export function AddClothesModal({
   isOpen,
   onClose,
   onSubmit,
-  title = 'Add New Clothes',
-  submitLabel = 'Add Clothes',
+  title = 'Add New Clothing',
+  submitLabel = 'Add Clothing',
   initialValues,
 }: AddClothesModalProps) {
   const [formData, setFormData] = useState<AddClothesPayload>(() => buildInitialForm(initialValues));
@@ -80,6 +81,7 @@ export function AddClothesModal({
       name: formData.name,
       type: formData.type,
       color: formData.color,
+      dateOfPurchase: formData.dateOfPurchase,
     };
 
     if (imageChanged) {
@@ -236,6 +238,22 @@ export function AddClothesModal({
                 <span className="text-sm text-gray-600">{getColorName(formData.color)}</span>
               </div>
             )}
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="date-of-purchase">Date of Purchase</Label>
+            <Input
+              id="date-of-purchase"
+              type="date"
+              value={formData.dateOfPurchase || ''}
+              max={new Date().toISOString().split('T')[0]}
+              onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                setFormData((prev: AddClothesPayload) => ({
+                  ...prev,
+                  dateOfPurchase: event.target.value,
+                }))
+              }
+            />
           </div>
 
           <div className="space-y-2">
