@@ -12,7 +12,7 @@ import {
   NavigationMenuLink,
   NavigationMenuList,
 } from './components/ui/navigation-menu';
-import { Toaster } from './components/ui/sonner';
+import { Toaster, toast } from './components/ui/sonner';
 import type { AddClothesPayload, ClothesItem, WearRecord, WashRecord } from './types';
 import {
   createClothes,
@@ -25,6 +25,46 @@ import {
 } from './lib/api';
 import { getColorName } from './lib/colors';
 import type { SettingsSection } from './components/Settings';
+import {
+  enqueueAction,
+  getQueueLength,
+  registerSync,
+  replayQueue,
+} from './lib/offlineQueue';
+import { InstallBanner } from './components/InstallBanner';
+
+type BeforeInstallPromptEvent = Event & {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
+};
+
+const INSTALL_DISMISS_KEY = 'clothes-tracker-install-dismissed';
+
+function detectIsIos(): boolean {
+  if (typeof navigator === 'undefined') {
+    return false;
+  }
+
+  const userAgent = navigator.userAgent.toLowerCase();
+  const platform = (navigator.platform || '').toLowerCase();
+  return (
+    /iphone|ipad|ipod/.test(userAgent) ||
+    (platform === 'macintel' && navigator.maxTouchPoints > 1)
+  );
+}
+
+function detectStandalone(): boolean {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  const { matchMedia } = window;
+  const isStandaloneMedia = typeof matchMedia === 'function'
+    ? matchMedia('(display-mode: standalone)').matches
+    : false;
+  const navigatorAny = navigator as Navigator & { standalone?: boolean };
+  return Boolean(isStandaloneMedia || navigatorAny.standalone);
+}
 
 type TabType = 'home' | 'add' | 'wash' | 'timeline' | 'analysis' | 'settings';
 
@@ -58,6 +98,12 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [isConfirmingOutfit, setIsConfirmingOutfit] = useState(false);
+  const [pendingSyncCount, setPendingSyncCount] = useState(0);
+  const [isOffline, setIsOffline] = useState(false);
+  const [isSyncingQueue, setIsSyncingQueue] = useState(false);
+  const [installPromptEvent, setInstallPromptEvent] = useState<BeforeInstallPromptEvent | null>(null);
+  const [installBannerDismissed, setInstallBannerDismissed] = useState(false);
+  const [showIosInstallPrompt, setShowIosInstallPrompt] = useState(false);
   const [editingClothes, setEditingClothes] = useState<ClothesItem | null>(null);
   const [clothingTypes, setClothingTypes] = useState<string[]>([]);
   const [typeFilter, setTypeFilter] = useState('');
@@ -65,6 +111,13 @@ export default function App() {
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('overview');
   const [postAddRedirectTab, setPostAddRedirectTab] = useState<TabType>('home');
   const undoingWearIdsRef = useRef<Set<string>>(new Set());
+  const installStateHydratedRef = useRef(false);
+  const queueRetryStateRef = useRef<{ timeoutId: number | null; attempt: number }>({
+    timeoutId: null,
+    attempt: 0,
+  });
+  const [nextRetryAt, setNextRetryAt] = useState<number | null>(null);
+  const [retryCountdown, setRetryCountdown] = useState<number | null>(null);
 
   const today = new Date().toISOString().split('T')[0];
 
@@ -188,6 +241,291 @@ export default function App() {
       setIsLoading(false);
     }
   }, []);
+
+  const flushQueuedActions = useCallback(async () => {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      return;
+    }
+
+    const retryState = queueRetryStateRef.current;
+
+    const clearScheduledRetry = () => {
+      if (retryState.timeoutId !== null) {
+        window.clearTimeout(retryState.timeoutId);
+        retryState.timeoutId = null;
+      }
+      retryState.attempt = 0;
+      setNextRetryAt(null);
+      setRetryCountdown(null);
+    };
+
+    const pendingBeforeFlush = getQueueLength();
+    if (pendingBeforeFlush === 0) {
+      setPendingSyncCount(0);
+      clearScheduledRetry();
+      return;
+    }
+
+    setIsSyncingQueue(true);
+
+    try {
+      await replayQueue(async action => {
+        switch (action.type) {
+          case 'record-wear': {
+            const { clothes: updatedClothes, wearRecords: updatedWearRecords } = await recordWear(
+              action.payload.clothesIds,
+            );
+            setClothes(updatedClothes);
+            setWearRecords(updatedWearRecords);
+            break;
+          }
+          case 'record-wash': {
+            const { clothes: updatedClothes, washRecords: updatedWashRecords } = await recordWash(
+              action.payload.clothesIds,
+            );
+            setClothes(updatedClothes);
+            setWashRecords(updatedWashRecords);
+            break;
+          }
+          default:
+            break;
+        }
+      });
+
+      setPendingSyncCount(getQueueLength());
+
+      if (pendingBeforeFlush > 0) {
+        toast.success('Offline activity synced');
+      }
+
+      clearScheduledRetry();
+    } catch (err) {
+      console.error('[offline-sync] failed to flush queue', err);
+      setPendingSyncCount(getQueueLength());
+
+      retryState.attempt += 1;
+      const delay = Math.min(30000, 5000 * 2 ** (retryState.attempt - 1));
+
+      if (retryState.timeoutId !== null) {
+        window.clearTimeout(retryState.timeoutId);
+      }
+
+      const nextAttemptAt = Date.now() + delay;
+      setNextRetryAt(nextAttemptAt);
+
+      retryState.timeoutId = window.setTimeout(() => {
+        retryState.timeoutId = null;
+        setNextRetryAt(null);
+        setRetryCountdown(null);
+        void flushQueuedActions();
+      }, delay);
+
+      const seconds = Math.ceil(delay / 1000);
+      toast.error(`Failed to sync offline activity. Retrying in ${seconds}s.`);
+      registerSync();
+    } finally {
+      setIsSyncingQueue(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    setPendingSyncCount(getQueueLength());
+
+    const updateStatus = () => {
+      const offline = typeof navigator !== 'undefined' && !navigator.onLine;
+      setIsOffline(offline);
+      if (!offline) {
+        void flushQueuedActions();
+      }
+    };
+
+    updateStatus();
+
+    window.addEventListener('online', updateStatus);
+    window.addEventListener('offline', updateStatus);
+
+    return () => {
+      window.removeEventListener('online', updateStatus);
+      window.removeEventListener('offline', updateStatus);
+    };
+  }, [flushQueuedActions]);
+
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) {
+      return;
+    }
+
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'clothes-tracker:sync') {
+        void flushQueuedActions();
+      }
+    };
+
+    navigator.serviceWorker.addEventListener('message', handleMessage);
+
+    return () => {
+      navigator.serviceWorker.removeEventListener('message', handleMessage);
+    };
+  }, [flushQueuedActions]);
+
+  useEffect(() => {
+    if (nextRetryAt === null) {
+      setRetryCountdown(null);
+      return;
+    }
+
+    const updateCountdown = () => {
+      const diff = nextRetryAt - Date.now();
+      if (diff <= 0) {
+        setRetryCountdown(null);
+      } else {
+        setRetryCountdown(Math.ceil(diff / 1000));
+      }
+    };
+
+    updateCountdown();
+    const intervalId = window.setInterval(updateCountdown, 1000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [nextRetryAt]);
+
+  useEffect(() => {
+    return () => {
+      const state = queueRetryStateRef.current;
+      if (state.timeoutId !== null) {
+        window.clearTimeout(state.timeoutId);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    let dismissed = false;
+    try {
+      dismissed = window.localStorage.getItem(INSTALL_DISMISS_KEY) === 'true';
+      if (dismissed) {
+        setInstallBannerDismissed(true);
+      }
+    } catch (error) {
+      console.error('[install-banner] failed to read dismissal flag', error);
+    }
+
+    const evaluateStandalone = () => {
+      const standalone = detectStandalone();
+      if (standalone) {
+        setInstallPromptEvent(null);
+        setShowIosInstallPrompt(false);
+        setInstallBannerDismissed(true);
+      }
+    };
+
+    evaluateStandalone();
+
+    const isiOS = detectIsIos();
+    if (!dismissed && isiOS && !detectStandalone()) {
+      setShowIosInstallPrompt(true);
+    }
+
+    installStateHydratedRef.current = true;
+
+    const handleBeforeInstallPrompt = (event: Event) => {
+      event.preventDefault();
+      if (dismissed || detectStandalone()) {
+        return;
+      }
+      setInstallPromptEvent(event as BeforeInstallPromptEvent);
+      setShowIosInstallPrompt(false);
+    };
+
+    const handleAppInstalled = () => {
+      setInstallPromptEvent(null);
+      setShowIosInstallPrompt(false);
+      setInstallBannerDismissed(true);
+      try {
+        window.localStorage.setItem(INSTALL_DISMISS_KEY, 'true');
+      } catch (error) {
+        console.error('[install-banner] failed to persist install flag', error);
+      }
+      toast.success('Clothes Tracker is ready from your home screen.');
+    };
+
+    const matchMediaStandalone = window.matchMedia?.('(display-mode: standalone)');
+    const handleDisplayModeChange = () => evaluateStandalone();
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    window.addEventListener('appinstalled', handleAppInstalled);
+    if (matchMediaStandalone && typeof matchMediaStandalone.addEventListener === 'function') {
+      matchMediaStandalone.addEventListener('change', handleDisplayModeChange);
+    }
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      window.removeEventListener('appinstalled', handleAppInstalled);
+      if (matchMediaStandalone && typeof matchMediaStandalone.removeEventListener === 'function') {
+        matchMediaStandalone.removeEventListener('change', handleDisplayModeChange);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    if (!installStateHydratedRef.current) {
+      return;
+    }
+
+    try {
+      window.localStorage.setItem(INSTALL_DISMISS_KEY, installBannerDismissed ? 'true' : 'false');
+    } catch (error) {
+      console.error('[install-banner] failed to persist dismissal', error);
+    }
+  }, [installBannerDismissed]);
+
+  useEffect(() => {
+    if (installBannerDismissed) {
+      setShowIosInstallPrompt(false);
+      setInstallPromptEvent(null);
+    }
+  }, [installBannerDismissed]);
+
+  const handleDismissInstall = useCallback(() => {
+    setInstallBannerDismissed(true);
+    setInstallPromptEvent(null);
+    setShowIosInstallPrompt(false);
+  }, []);
+
+  const handleInstallApp = useCallback(async () => {
+    if (!installPromptEvent) {
+      return;
+    }
+
+    try {
+      await installPromptEvent.prompt();
+      const choice = await installPromptEvent.userChoice;
+      if (choice.outcome === 'accepted') {
+        toast.success('Installing Clothes Tracker…');
+      } else {
+        toast.info('Installation canceled. You can install later from your browser menu.');
+      }
+    } catch (error) {
+      console.error('[install-banner] install prompt failed', error);
+      toast.error('Unable to start installation. Try using your browser menu.');
+    } finally {
+      setInstallPromptEvent(null);
+      setInstallBannerDismissed(true);
+    }
+  }, [installPromptEvent]);
 
   useEffect(() => {
     void loadSnapshot();
@@ -330,6 +668,20 @@ export default function App() {
     const ids = Array.from(selectedForWearing);
     if (ids.length === 0) return;
 
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      const queue = enqueueAction({
+        type: 'record-wear',
+        payload: { clothesIds: ids, queuedAt: Date.now() },
+      });
+      setSelectedForWearing(new Set());
+      setPendingSyncCount(queue.length);
+      toast.info(
+        `Queued today's outfit (${ids.length} item${ids.length === 1 ? '' : 's'}) for sync once you're online.`,
+      );
+      registerSync();
+      return;
+    }
+
     setIsConfirmingOutfit(true);
     resetActionError();
 
@@ -344,10 +696,23 @@ export default function App() {
     } finally {
       setIsConfirmingOutfit(false);
     }
-  }, [resetActionError, selectedForWearing]);
+  }, [registerSync, resetActionError, selectedForWearing]);
 
   const markAsWashed = useCallback(async (clothesIds: string[]) => {
     if (clothesIds.length === 0) return;
+
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      const queue = enqueueAction({
+        type: 'record-wash',
+        payload: { clothesIds, queuedAt: Date.now() },
+      });
+      setPendingSyncCount(queue.length);
+      toast.info(
+        `Queued wash for ${clothesIds.length} item${clothesIds.length === 1 ? '' : 's'} to sync when you're back online.`,
+      );
+      registerSync();
+      return;
+    }
 
     resetActionError();
 
@@ -360,7 +725,7 @@ export default function App() {
       setActionError(message);
       throw err;
     }
-  }, [resetActionError]);
+  }, [registerSync, resetActionError]);
 
   const renderTabContent = () => {
     switch (activeTab) {
@@ -601,6 +966,41 @@ export default function App() {
 
     return (
       <>
+        {(isOffline || pendingSyncCount > 0 || isSyncingQueue) && (
+          <div className="px-4 pt-4">
+            <div className="flex flex-col gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 md:flex-row md:items-center md:justify-between">
+              <div className="flex flex-col gap-1">
+                <span>
+                  {isOffline
+                    ? 'Offline mode: queued actions will sync automatically when you reconnect.'
+                    : isSyncingQueue
+                      ? 'Syncing offline activity…'
+                      : 'Offline activity waiting to sync.'}
+                </span>
+                {!isOffline && !isSyncingQueue && retryCountdown !== null && (
+                  <span className="text-xs text-amber-700">
+                    Retrying in approximately {retryCountdown}s
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-3">
+                {(pendingSyncCount > 0 || isSyncingQueue) && (
+                  <span className="text-xs font-semibold uppercase tracking-wide">
+                    {isSyncingQueue ? 'Syncing…' : `${pendingSyncCount} pending`}
+                  </span>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void flushQueuedActions()}
+                  disabled={isSyncingQueue || pendingSyncCount === 0 || isOffline}
+                >
+                  Retry now
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
         {actionError && (
           <div className="px-4 pt-4">
             <div className="relative rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
