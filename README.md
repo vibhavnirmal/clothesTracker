@@ -24,6 +24,14 @@ npm run build
 ```
 The static bundle lands in `build/`, and the Express server keeps serving JSON under `/api`. Use the included Dockerfile if you prefer a single-container deploy.
 
+Offline & install experience (Phases 1–4)
+----------------------------------------
+- The client ships with a service worker (cache-first for static assets, network-first for API calls) and a web manifest.
+- Wear/wash actions queue locally while offline, deduplicate identical events, and replay in order once connectivity returns.
+- Failed sync attempts retry automatically with exponential backoff, background sync registration, and a manual "Retry now" button in the banner.
+- Visit the app once online, then reopen it offline; the queue keeps your data safe until it reaches the server again.
+- Desktop Chrome, Android Chrome, and Safari surface install prompts. On iOS Safari, tap the share icon → "Add to Home Screen" to install.
+
 API
 ---
 | Method | Endpoint           | Purpose                |
