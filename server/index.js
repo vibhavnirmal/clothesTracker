@@ -12,10 +12,6 @@ const PORT = process.env.PORT || 4000;
 const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
 
-// Run database migrations
-const migrationRunner = new MigrationRunner(db);
-migrationRunner.runMigrations();
-
 db.exec(`
   CREATE TABLE IF NOT EXISTS clothes (
     id TEXT PRIMARY KEY,
@@ -47,6 +43,10 @@ db.exec(`
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S', 'now'))
   );
 `);
+
+// Run database migrations after ensuring base tables exist
+const migrationRunner = new MigrationRunner(db);
+migrationRunner.runMigrations();
 
 const DEFAULT_CLOTHING_TYPES = [
   'Shirt - Full Sleeve',
