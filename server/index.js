@@ -3,7 +3,6 @@ const cors = require('cors');
 const path = require('path');
 const { randomUUID } = require('crypto');
 const Database = require('better-sqlite3');
-const MigrationRunner = require('./migrations/migrationRunner');
 
 const DB_PATH = path.join(__dirname, '..', 'data', 'clothes.sqlite');
 const CLIENT_BUILD_PATH = path.join(__dirname, '..', 'build');
@@ -44,10 +43,6 @@ db.exec(`
   );
 `);
 
-// Run database migrations after ensuring base tables exist
-const migrationRunner = new MigrationRunner(db);
-migrationRunner.runMigrations();
-
 const DEFAULT_CLOTHING_TYPES = [
   'Shirt - Full Sleeve',
   'Shirt - Half Sleeve',
@@ -81,13 +76,6 @@ const MAX_COLOR_LENGTH = 9; // e.g. #RRGGBB or #RRGGBBAA
 const MAX_IMAGE_BYTES = 2 * 1024 * 1024; // 2MB
 const MAX_BATCH_SIZE = 32;
 
-function getLocalIsoDate(date = new Date()) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '4mb' }));
@@ -96,82 +84,21 @@ const clothesSelect = db.prepare('SELECT * FROM clothes ORDER BY name');
 const wearSelect = db.prepare('SELECT * FROM wear_records ORDER BY date DESC, id DESC');
 const washSelect = db.prepare('SELECT * FROM wash_records ORDER BY date DESC, id DESC');
 
-function getClothesTableColumns() {
-  return db.prepare('PRAGMA table_info(clothes)').all();
-}
-
-let clothesTableColumns = getClothesTableColumns();
-if (!clothesTableColumns.some(column => column.name === 'date_of_purchase')) {
+const clothesTableColumns = db.prepare('PRAGMA table_info(clothes)').all();
+const hasDateOfPurchaseColumn = clothesTableColumns.some(column => column.name === 'date_of_purchase');
+if (!hasDateOfPurchaseColumn) {
   db.exec('ALTER TABLE clothes ADD COLUMN date_of_purchase TEXT');
-  clothesTableColumns = getClothesTableColumns();
 }
 
-const clothesColumnNames = new Set(clothesTableColumns.map(column => column.name));
+const insertClothes = db.prepare(`
+  INSERT INTO clothes (id, name, type, color, image, date_of_purchase, wears_since_wash, last_wash_date)
+  VALUES (@id, @name, @type, @color, @image, @dateOfPurchase, 0, NULL)
+`);
 
-// Dynamic insert statement that handles both old and new schema
-function createInsertClothesStatement() {
-  const columnNames = Array.from(clothesColumnNames);
-  
-  const baseFields = ['id', 'name', 'type', 'color', 'image', 'date_of_purchase', 'wears_since_wash', 'last_wash_date'];
-  const optionalFields = ['purchase_price', 'brand', 'size', 'material', 'season', 'care_instructions', 'status', 'notes', 'created_at', 'updated_at'];
-  
-  const availableFields = baseFields.concat(optionalFields.filter(field => columnNames.includes(field)));
-  const placeholders = availableFields.map(field => {
-    const placeholder = field === 'date_of_purchase' ? '@dateOfPurchase' :
-                       field === 'purchase_price' ? '@purchasePrice' :
-                       field === 'care_instructions' ? '@careInstructions' :
-                       field === 'created_at' ? '@createdAt' :
-                       field === 'updated_at' ? '@updatedAt' :
-                       '@' + field;
-    return placeholder;
-  });
-  
-  return db.prepare(`
-    INSERT INTO clothes (${availableFields.join(', ')})
-    VALUES (${placeholders.join(', ')})
-  `);
-}
-
-const OPTIONAL_CLOTHES_COLUMNS = [
-  { column: 'purchase_price', param: 'purchasePrice', defaultValue: null },
-  { column: 'brand', param: 'brand', defaultValue: null },
-  { column: 'size', param: 'size', defaultValue: null },
-  { column: 'material', param: 'material', defaultValue: null },
-  { column: 'season', param: 'season', defaultValue: null },
-  { column: 'care_instructions', param: 'careInstructions', defaultValue: null },
-  { column: 'status', param: 'status', defaultValue: 'active' },
-  { column: 'notes', param: 'notes', defaultValue: null },
-  { column: 'created_at', param: 'createdAt', defaultValue: () => new Date().toISOString() },
-  { column: 'updated_at', param: 'updatedAt', defaultValue: () => new Date().toISOString() },
-];
-
-const insertClothes = createInsertClothesStatement();
-
-// Dynamic insert statement for wear records
-function createInsertWearRecordStatement() {
-  const columns = db.prepare('PRAGMA table_info(wear_records)').all();
-  const columnNames = columns.map(col => col.name);
-  
-  const baseFields = ['id', 'clothes_id', 'date'];
-  const optionalFields = ['weather_temp', 'weather_condition', 'occasion', 'rating', 'notes', 'created_at'];
-  
-  const availableFields = baseFields.concat(optionalFields.filter(field => columnNames.includes(field)));
-  const placeholders = availableFields.map(field => {
-    const placeholder = field === 'clothes_id' ? '@clothesId' :
-                       field === 'weather_temp' ? '@weatherTemp' :
-                       field === 'weather_condition' ? '@weatherCondition' :
-                       field === 'created_at' ? '@createdAt' :
-                       '@' + field;
-    return placeholder;
-  });
-  
-  return db.prepare(`
-    INSERT INTO wear_records (${availableFields.join(', ')})
-    VALUES (${placeholders.join(', ')})
-  `);
-}
-
-const insertWearRecord = createInsertWearRecordStatement();
+const insertWearRecord = db.prepare(`
+  INSERT INTO wear_records (id, clothes_id, date)
+  VALUES (@id, @clothesId, @date)
+`);
 
 const insertWashRecord = db.prepare(`
   INSERT INTO wash_records (id, clothes_id, date)
@@ -186,31 +113,15 @@ const deleteClothingTypeByName = db.prepare('DELETE FROM clothing_types WHERE na
 
 const selectClothesById = db.prepare('SELECT id FROM clothes WHERE id = ?');
 const selectClothesRowById = db.prepare('SELECT * FROM clothes WHERE id = ?');
-// Dynamic update statement that handles both old and new schema
-function createUpdateClothesStatement() {
-  const columnNames = Array.from(clothesColumnNames);
-  
-  const baseFields = ['name', 'type', 'color', 'image', 'date_of_purchase'];
-  const optionalFields = ['purchase_price', 'brand', 'size', 'material', 'season', 'care_instructions', 'status', 'notes', 'updated_at'];
-  
-  const availableFields = baseFields.concat(optionalFields.filter(field => columnNames.includes(field)));
-  const setClause = availableFields.map(field => {
-    const placeholder = field === 'date_of_purchase' ? '@dateOfPurchase' :
-                       field === 'purchase_price' ? '@purchasePrice' :
-                       field === 'care_instructions' ? '@careInstructions' :
-                       field === 'updated_at' ? '@updatedAt' :
-                       '@' + field;
-    return `${field} = ${placeholder}`;
-  }).join(', ');
-  
-  return db.prepare(`
-    UPDATE clothes
-    SET ${setClause}
-    WHERE id = @id
-  `);
-}
-
-const updateClothesById = createUpdateClothesStatement();
+const updateClothesById = db.prepare(`
+  UPDATE clothes
+  SET name = @name,
+      type = @type,
+      color = @color,
+      image = @image,
+      date_of_purchase = @dateOfPurchase
+  WHERE id = @id
+`);
 
 const incrementWearCount = db.prepare(`
   UPDATE clothes
@@ -243,7 +154,7 @@ const deleteWearRecordById = db.prepare('DELETE FROM wear_records WHERE id = ?')
 const deleteClothesById = db.prepare('DELETE FROM clothes WHERE id = ?');
 
 function serializeClothes(row) {
-  const result = {
+  return {
     id: row.id,
     name: row.name,
     type: row.type,
@@ -253,38 +164,14 @@ function serializeClothes(row) {
     wearsSinceWash: row.wears_since_wash,
     lastWashDate: row.last_wash_date || undefined,
   };
-
-  // Add new optional fields if they exist (backward compatibility)
-  if (row.purchase_price !== undefined) result.purchasePrice = row.purchase_price;
-  if (row.brand !== undefined) result.brand = row.brand;
-  if (row.size !== undefined) result.size = row.size;
-  if (row.material !== undefined) result.material = row.material;
-  if (row.season !== undefined) result.season = row.season;
-  if (row.care_instructions !== undefined) result.careInstructions = row.care_instructions;
-  if (row.status !== undefined) result.status = row.status;
-  if (row.notes !== undefined) result.notes = row.notes;
-  if (row.created_at !== undefined) result.createdAt = row.created_at;
-  if (row.updated_at !== undefined) result.updatedAt = row.updated_at;
-
-  return result;
 }
 
 function serializeWear(row) {
-  const result = {
+  return {
     id: row.id,
     clothesId: row.clothes_id,
     date: row.date,
   };
-
-  // Add new optional fields if they exist (backward compatibility)
-  if (row.weather_temp !== undefined) result.weatherTemp = row.weather_temp;
-  if (row.weather_condition !== undefined) result.weatherCondition = row.weather_condition;
-  if (row.occasion !== undefined) result.occasion = row.occasion;
-  if (row.rating !== undefined) result.rating = row.rating;
-  if (row.notes !== undefined) result.notes = row.notes;
-  if (row.created_at !== undefined) result.createdAt = row.created_at;
-
-  return result;
 }
 
 function serializeWash(row) {
@@ -374,16 +261,6 @@ function normalizeClothesPayload(payload, options = {}) {
     ? raw.dateOfPurchase.trim()
     : '';
 
-  // Handle new optional fields
-  const purchasePrice = typeof raw.purchasePrice === 'number' && raw.purchasePrice >= 0 ? raw.purchasePrice : undefined;
-  const brand = typeof raw.brand === 'string' ? raw.brand.trim() : undefined;
-  const size = typeof raw.size === 'string' ? raw.size.trim() : undefined;
-  const material = typeof raw.material === 'string' ? raw.material.trim() : undefined;
-  const season = typeof raw.season === 'string' && ['spring', 'summer', 'fall', 'winter', 'all'].includes(raw.season) ? raw.season : undefined;
-  const careInstructions = typeof raw.careInstructions === 'string' ? raw.careInstructions.trim() : undefined;
-  const status = typeof raw.status === 'string' && ['active', 'donated', 'sold', 'storage'].includes(raw.status) ? raw.status : 'active';
-  const notes = typeof raw.notes === 'string' ? raw.notes.trim() : undefined;
-
   const errors = [];
 
   if (!isNonEmptyString(name, MAX_NAME_LENGTH)) {
@@ -402,36 +279,11 @@ function normalizeClothesPayload(payload, options = {}) {
     if (!isValidIsoDate(dateOfPurchaseInput)) {
       errors.push('Date of purchase must be a valid date in YYYY-MM-DD format.');
     } else {
-      const today = getLocalIsoDate();
+      const today = new Date().toISOString().split('T')[0];
       if (dateOfPurchaseInput > today) {
         errors.push('Date of purchase cannot be in the future.');
       }
     }
-  }
-
-  // Validation for new fields
-  if (purchasePrice !== undefined && (purchasePrice < 0 || purchasePrice > 999999.99)) {
-    errors.push('Purchase price must be between 0 and 999999.99.');
-  }
-
-  if (brand !== undefined && brand.length > 100) {
-    errors.push('Brand must be 100 characters or less.');
-  }
-
-  if (size !== undefined && size.length > 20) {
-    errors.push('Size must be 20 characters or less.');
-  }
-
-  if (material !== undefined && material.length > 100) {
-    errors.push('Material must be 100 characters or less.');
-  }
-
-  if (careInstructions !== undefined && careInstructions.length > 500) {
-    errors.push('Care instructions must be 500 characters or less.');
-  }
-
-  if (notes !== undefined && notes.length > 1000) {
-    errors.push('Notes must be 1000 characters or less.');
   }
 
   const hasImageField = Object.prototype.hasOwnProperty.call(raw, 'image');
@@ -460,27 +312,9 @@ function normalizeClothesPayload(payload, options = {}) {
     normalizedImage = '';
   }
 
-  const currentTime = new Date().toISOString();
-
   return {
     errors,
-    data: { 
-      name, 
-      type, 
-      color, 
-      image: normalizedImage, 
-      dateOfPurchase: dateOfPurchaseInput,
-      purchasePrice,
-      brand,
-      size,
-      material,
-      season,
-      careInstructions,
-      status,
-      notes,
-      createdAt: currentTime,
-      updatedAt: currentTime
-    },
+    data: { name, type, color, image: normalizedImage, dateOfPurchase: dateOfPurchaseInput },
     hasImageField,
     hasDateField,
   };
@@ -563,37 +397,14 @@ app.post('/api/clothes', (req, res) => {
   }
 
   const id = randomUUID();
-  const insertData = {
+  insertClothes.run({
     id,
     name: data.name,
     type: data.type,
     color: data.color,
     image: typeof data.image === 'string' ? data.image : '',
     dateOfPurchase: data.dateOfPurchase.length > 0 ? data.dateOfPurchase : null,
-    wears_since_wash: 0,
-    last_wash_date: null
-  };
-
-  // Add new optional fields if they exist
-  if (data.purchasePrice !== undefined) insertData.purchasePrice = data.purchasePrice;
-  if (data.brand !== undefined) insertData.brand = data.brand || null;
-  if (data.size !== undefined) insertData.size = data.size || null;
-  if (data.material !== undefined) insertData.material = data.material || null;
-  if (data.season !== undefined) insertData.season = data.season || null;
-  if (data.careInstructions !== undefined) insertData.careInstructions = data.careInstructions || null;
-  if (data.status !== undefined) insertData.status = data.status;
-  if (data.notes !== undefined) insertData.notes = data.notes || null;
-  if (data.createdAt !== undefined) insertData.createdAt = data.createdAt;
-  if (data.updatedAt !== undefined) insertData.updatedAt = data.updatedAt;
-
-  OPTIONAL_CLOTHES_COLUMNS.forEach(({ column, param, defaultValue }) => {
-    if (!clothesColumnNames.has(column)) return;
-    if (insertData[param] === undefined) {
-      insertData[param] = typeof defaultValue === 'function' ? defaultValue() : defaultValue;
-    }
   });
-
-  insertClothes.run(insertData);
   const row = selectClothesRowById.get(id);
   res.status(201).json(serializeClothes(row));
 });
@@ -628,37 +439,7 @@ app.put('/api/clothes/:id', (req, res) => {
     dateOfPurchase: hasDateField
       ? (data.dateOfPurchase.length > 0 ? data.dateOfPurchase : null)
       : existing.date_of_purchase,
-    updatedAt: new Date().toISOString()
   };
-
-  // Add new optional fields, preserving existing values if not provided
-  if (data.purchasePrice !== undefined) updatePayload.purchasePrice = data.purchasePrice;
-  else if (existing.purchase_price !== undefined) updatePayload.purchasePrice = existing.purchase_price;
-
-  if (data.brand !== undefined) updatePayload.brand = data.brand || null;
-  else if (existing.brand !== undefined) updatePayload.brand = existing.brand;
-
-  if (data.size !== undefined) updatePayload.size = data.size || null;
-  else if (existing.size !== undefined) updatePayload.size = existing.size;
-
-  if (data.material !== undefined) updatePayload.material = data.material || null;
-  else if (existing.material !== undefined) updatePayload.material = existing.material;
-
-  if (data.season !== undefined) updatePayload.season = data.season || null;
-  else if (existing.season !== undefined) updatePayload.season = existing.season;
-
-  if (data.careInstructions !== undefined) updatePayload.careInstructions = data.careInstructions || null;
-  else if (existing.care_instructions !== undefined) updatePayload.careInstructions = existing.care_instructions;
-
-  if (data.status !== undefined) updatePayload.status = data.status;
-  else if (existing.status !== undefined) updatePayload.status = existing.status;
-
-  if (data.notes !== undefined) updatePayload.notes = data.notes || null;
-  else if (existing.notes !== undefined) updatePayload.notes = existing.notes;
-
-  if (clothesColumnNames.has('created_at')) {
-    updatePayload.createdAt = existing.created_at ?? null;
-  }
 
   updateClothesById.run(updatePayload);
   const row = selectClothesRowById.get(id);
@@ -693,7 +474,7 @@ app.post('/api/wears', (req, res) => {
     return res.status(404).json({ message: `Clothing item ${missingId} was not found.` });
   }
 
-  const today = getLocalIsoDate();
+  const today = new Date().toISOString().split('T')[0];
 
   const run = db.transaction(ids => {
     ids.forEach(clothesId => {
@@ -724,7 +505,7 @@ app.delete('/api/wears/:id', (req, res) => {
   const requestedDate = typeof req.query.date === 'string' ? req.query.date : undefined;
   const targetDate = requestedDate && /^\d{4}-\d{2}-\d{2}$/.test(requestedDate)
     ? requestedDate
-    : getLocalIsoDate();
+    : new Date().toISOString().split('T')[0];
 
   const record = selectWearRecordForDate.get(id, targetDate);
   if (!record) {
@@ -777,7 +558,7 @@ app.post('/api/washes', (req, res) => {
     return res.status(404).json({ message: `Clothing item ${missingId} was not found.` });
   }
 
-  const today = getLocalIsoDate();
+  const today = new Date().toISOString().split('T')[0];
 
   const run = db.transaction(ids => {
     ids.forEach(clothesId => {
@@ -822,138 +603,6 @@ if (process.env.NODE_ENV === 'production') {
     });
   });
 }
-
-// ===== NEW FEATURE ENDPOINTS =====
-
-// Tags endpoints
-app.get('/api/tags', (_req, res) => {
-  try {
-    const tags = db.prepare('SELECT * FROM tags ORDER BY name').all();
-    res.json({ tags });
-  } catch (error) {
-    console.error('Failed to fetch tags', error);
-    res.status(500).json({ message: 'Failed to fetch tags' });
-  }
-});
-
-app.post('/api/tags', (req, res) => {
-  const { name, color } = req.body;
-  
-  if (!name || typeof name !== 'string' || name.trim().length === 0) {
-    return res.status(400).json({ message: 'Tag name is required' });
-  }
-
-  if (color && (typeof color !== 'string' || !isValidHexColor(color))) {
-    return res.status(400).json({ message: 'Color must be a valid hex color' });
-  }
-
-  try {
-    const id = randomUUID();
-    db.prepare('INSERT INTO tags (id, name, color) VALUES (?, ?, ?)').run(id, name.trim(), color || null);
-    const tag = db.prepare('SELECT * FROM tags WHERE id = ?').get(id);
-    res.status(201).json(tag);
-  } catch (error) {
-    if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
-      return res.status(409).json({ message: 'Tag name already exists' });
-    }
-    console.error('Failed to create tag', error);
-    res.status(500).json({ message: 'Failed to create tag' });
-  }
-});
-
-// Outfits endpoints
-app.get('/api/outfits', (_req, res) => {
-  try {
-    const outfits = db.prepare(`
-      SELECT o.*, 
-             GROUP_CONCAT(c.name) as item_names,
-             COUNT(oi.clothes_id) as item_count
-      FROM outfits o
-      LEFT JOIN outfit_items oi ON o.id = oi.outfit_id
-      LEFT JOIN clothes c ON oi.clothes_id = c.id
-      GROUP BY o.id
-      ORDER BY o.created_at DESC
-    `).all();
-    res.json({ outfits });
-  } catch (error) {
-    console.error('Failed to fetch outfits', error);
-    res.status(500).json({ message: 'Failed to fetch outfits' });
-  }
-});
-
-app.post('/api/outfits', (req, res) => {
-  const { name, description, season, occasion, clothesIds } = req.body;
-  
-  if (!name || typeof name !== 'string' || name.trim().length === 0) {
-    return res.status(400).json({ message: 'Outfit name is required' });
-  }
-
-  if (!Array.isArray(clothesIds) || clothesIds.length === 0) {
-    return res.status(400).json({ message: 'At least one clothing item is required' });
-  }
-
-  try {
-    const outfitId = randomUUID();
-    const transaction = db.transaction(() => {
-      // Create outfit
-      db.prepare(`
-        INSERT INTO outfits (id, name, description, season, occasion, favorite) 
-        VALUES (?, ?, ?, ?, ?, ?)
-      `).run(outfitId, name.trim(), description || null, season || null, occasion || null, false);
-      
-      // Add items to outfit
-      const insertItem = db.prepare('INSERT INTO outfit_items (id, outfit_id, clothes_id) VALUES (?, ?, ?)');
-      clothesIds.forEach(clothesId => {
-        insertItem.run(randomUUID(), outfitId, clothesId);
-      });
-    });
-    
-    transaction();
-    
-    const outfit = db.prepare('SELECT * FROM outfits WHERE id = ?').get(outfitId);
-    res.status(201).json(outfit);
-  } catch (error) {
-    console.error('Failed to create outfit', error);
-    res.status(500).json({ message: 'Failed to create outfit' });
-  }
-});
-
-// User preferences endpoints
-app.get('/api/preferences', (_req, res) => {
-  try {
-    const preferences = db.prepare('SELECT * FROM user_preferences').all();
-    const prefsObject = preferences.reduce((acc, pref) => {
-      acc[pref.key] = pref.value;
-      return acc;
-    }, {});
-    res.json({ preferences: prefsObject });
-  } catch (error) {
-    console.error('Failed to fetch preferences', error);
-    res.status(500).json({ message: 'Failed to fetch preferences' });
-  }
-});
-
-app.put('/api/preferences/:key', (req, res) => {
-  const { key } = req.params;
-  const { value } = req.body;
-  
-  if (!value || typeof value !== 'string') {
-    return res.status(400).json({ message: 'Value is required and must be a string' });
-  }
-
-  try {
-    db.prepare(`
-      INSERT INTO user_preferences (key, value) 
-      VALUES (?, ?) 
-      ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%S', 'now')
-    `).run(key, value, value);
-    
-    res.json({ success: true });
-  } catch (error) {
-    console.error('Failed to update preference', error);
-    res.status(500).json({ message: 'Failed to update preference' });
-  }
-});
 
 app.use((err, _req, res, _next) => {
   console.error('Unexpected error', err);

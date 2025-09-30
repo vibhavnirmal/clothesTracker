@@ -24,7 +24,6 @@ import {
   updateClothes,
 } from './lib/api';
 import { getColorName } from './lib/colors';
-import { formatDateAsLocalIso } from './lib/date';
 import type { SettingsSection } from './components/Settings';
 
 type TabType = 'home' | 'add' | 'wash' | 'timeline' | 'analysis' | 'settings';
@@ -67,7 +66,7 @@ export default function App() {
   const [postAddRedirectTab, setPostAddRedirectTab] = useState<TabType>('home');
   const undoingWearIdsRef = useRef<Set<string>>(new Set());
 
-  const today = formatDateAsLocalIso(new Date());
+  const today = new Date().toISOString().split('T')[0];
 
   const wearStatus = useMemo(() => {
     const status = new Map<string, { lastWearDate?: string; wornToday: boolean }>();

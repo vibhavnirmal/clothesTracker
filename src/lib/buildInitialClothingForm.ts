@@ -7,13 +7,5 @@ export function buildInitialClothingForm(values?: Partial<AddClothesPayload>): A
     color: values?.color ?? '',
     dateOfPurchase: values?.dateOfPurchase ?? '',
     image: values?.image ?? '',
-    // New optional fields
-    purchasePrice: values?.purchasePrice,
-    brand: values?.brand,
-    size: values?.size,
-    material: values?.material,
-    season: values?.season,
-    careInstructions: values?.careInstructions,
-    notes: values?.notes,
   };
 }
