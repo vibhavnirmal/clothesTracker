@@ -4,6 +4,18 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, '') || '/api'
 
 type JsonResponse<T> = Promise<T>;
 
+export class ApiError<TBody = unknown> extends Error {
+  status: number;
+  details: TBody | null;
+
+  constructor(message: string, status: number, details: TBody | null) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.details = details;
+  }
+}
+
 async function request<T>(path: string, options?: RequestInit): JsonResponse<T> {
   const response = await fetch(`${API_BASE}${path}`, {
     headers: {
@@ -13,14 +25,27 @@ async function request<T>(path: string, options?: RequestInit): JsonResponse<T> 
     ...options,
   });
 
-  if (!response.ok) {
-    const message = await response
-      .json()
-      .catch(() => ({ message: response.statusText }));
-    throw new Error(message?.message || response.statusText || 'Request failed');
+  const text = await response.text();
+  let parsed: unknown = null;
+
+  if (text) {
+    try {
+      parsed = JSON.parse(text);
+    } catch (error) {
+      parsed = text;
+    }
   }
 
-  return response.json();
+  if (!response.ok) {
+    const message =
+      typeof (parsed as { message?: string } | null)?.message === 'string'
+        ? (parsed as { message: string }).message
+        : response.statusText || 'Request failed';
+
+    throw new ApiError(message, response.status, parsed);
+  }
+
+  return parsed as T;
 }
 
 export function fetchSnapshot(): JsonResponse<AppSnapshot> {

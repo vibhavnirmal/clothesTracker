@@ -9,6 +9,8 @@ import type { AddClothesPayload } from '../types';
 import { COLOR_OPTIONS, getColorName } from '../lib/colors';
 import { compressImage, estimateDataUrlBytes } from '../lib/imageCompression';
 import { buildInitialClothingForm } from '../lib/buildInitialClothingForm';
+import { ApiError } from '../lib/api';
+import { formatDateAsLocalIso } from '../lib/date';
 
 interface ClothingFormProps {
     initialValues?: Partial<AddClothesPayload>;
@@ -39,8 +41,10 @@ export function ClothingForm({
     const [imageMeta, setImageMeta] = useState<{ size: number; quality: number; resized: boolean } | null>(null);
     const [imageError, setImageError] = useState<string | null>(null);
     const [imageChanged, setImageChanged] = useState(false);
+    const [serverErrors, setServerErrors] = useState<string[]>([]);
     const processingImageRef = useRef(false);
     const imageInputRef = useRef<HTMLInputElement | null>(null);
+    const todayLocalIso = useMemo(() => formatDateAsLocalIso(new Date()), []);
     const openFilePicker = (capture?: 'environment' | 'user') => {
         const input = imageInputRef.current;
         if (!input) return;
@@ -83,6 +87,7 @@ export function ClothingForm({
         setIsProcessingImage(false);
         setImageChanged(false);
         processingImageRef.current = false;
+        setServerErrors([]);
     }, [initialValues]);
 
     const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -96,6 +101,13 @@ export function ClothingForm({
             type: formData.type,
             color: formData.color,
             dateOfPurchase: formData.dateOfPurchase,
+            purchasePrice: formData.purchasePrice,
+            brand: formData.brand,
+            size: formData.size,
+            material: formData.material,
+            season: formData.season,
+            careInstructions: formData.careInstructions,
+            notes: formData.notes,
         };
 
         if (imageChanged) {
@@ -110,10 +122,30 @@ export function ClothingForm({
             setImageMeta(null);
             setImageError(null);
             setImageChanged(false);
+            setServerErrors([]);
             onSubmitSuccess?.();
         } catch (error) {
             console.error('Failed to save clothes', error);
-            toast.error('Failed to save clothes. Please try again.');
+
+            if (error instanceof ApiError) {
+                const details = error.details as { errors?: unknown } | null;
+                const extractedErrors = Array.isArray(details?.errors)
+                    ? (details?.errors as unknown[])
+                        .map(err => (typeof err === 'string' && err.trim().length > 0 ? err.trim() : null))
+                        .filter((err): err is string => Boolean(err))
+                    : [];
+
+                if (extractedErrors.length > 0) {
+                    setServerErrors(extractedErrors);
+                } else {
+                    setServerErrors([error.message || 'Failed to save clothes. Please try again.']);
+                }
+
+                toast.error(error.message || 'Failed to save clothes. Please try again.');
+            } else {
+                setServerErrors(['Failed to save clothes. Please try again.']);
+                toast.error('Failed to save clothes. Please try again.');
+            }
         } finally {
             setIsSubmitting(false);
         }
@@ -175,6 +207,17 @@ export function ClothingForm({
 
     return (
         <form onSubmit={handleSubmit} className="space-y-4">
+            {serverErrors.length > 0 && (
+                <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                    <p className="font-medium">We couldn&apos;t save this clothing item:</p>
+                    <ul className="mt-2 list-disc space-y-1 pl-5">
+                        {serverErrors.map((error, index) => (
+                            <li key={`${error}-${index}`}>{error}</li>
+                        ))}
+                    </ul>
+                </div>
+            )}
+
             <div className="space-y-2">
                 <Label htmlFor="name">Name *</Label>
                 <Input
@@ -202,7 +245,7 @@ export function ClothingForm({
                     </SelectTrigger>
                     <SelectContent>
                         {availableTypeOptions.length === 0 ? (
-                            <SelectItem value="" disabled>
+                            <SelectItem value="no-types" disabled>
                                 No types yet
                             </SelectItem>
                         ) : (
@@ -223,13 +266,97 @@ export function ClothingForm({
                     id="date-of-purchase"
                     type="date"
                     value={formData.dateOfPurchase || ''}
-                    max={new Date().toISOString().split('T')[0]}
+                    max={todayLocalIso}
                     onChange={(event: ChangeEvent<HTMLInputElement>) =>
                         setFormData(prev => ({
                             ...prev,
                             dateOfPurchase: event.target.value,
                         }))
                     }
+                />
+            </div>
+
+            {/* New optional fields */}
+            <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                    <Label htmlFor="brand">Brand</Label>
+                    <Input
+                        id="brand"
+                        value={formData.brand || ''}
+                        onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                            setFormData(prev => ({ ...prev, brand: event.target.value }))
+                        }
+                        placeholder="e.g., Nike, Zara"
+                    />
+                </div>
+                <div className="space-y-2">
+                    <Label htmlFor="size">Size</Label>
+                    <Input
+                        id="size"
+                        value={formData.size || ''}
+                        onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                            setFormData(prev => ({ ...prev, size: event.target.value }))
+                        }
+                        placeholder="e.g., M, L, 32"
+                    />
+                </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                    <Label htmlFor="purchase-price">Purchase Price</Label>
+                    <Input
+                        id="purchase-price"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={formData.purchasePrice || ''}
+                        onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                            setFormData(prev => ({ 
+                                ...prev, 
+                                purchasePrice: event.target.value ? parseFloat(event.target.value) : undefined 
+                            }))
+                        }
+                        placeholder="0.00"
+                    />
+                </div>
+                <div className="space-y-2">
+                    <Label htmlFor="season">Season</Label>
+                    <Select
+                        value={formData.season ?? '__any'}
+                        onValueChange={(value: string) =>
+                            setFormData(prev => ({
+                                ...prev,
+                                season: value === '__any'
+                                    ? undefined
+                                    : (value as 'spring' | 'summer' | 'fall' | 'winter' | 'all'),
+                            }))
+                        }
+                    >
+                        <SelectTrigger>
+                            <SelectValue placeholder="Select season" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="__any">Any season</SelectItem>
+                            <SelectItem value="spring">Spring</SelectItem>
+                            <SelectItem value="summer">Summer</SelectItem>
+                            <SelectItem value="fall">Fall</SelectItem>
+                            <SelectItem value="winter">Winter</SelectItem>
+                            <SelectItem value="all">All seasons</SelectItem>
+                        </SelectContent>
+                    </Select>
+                </div>
+            </div>
+
+            <div className="space-y-2">
+                <Label htmlFor="material">Material</Label>
+                <Input
+                    id="material"
+                    value={formData.material || ''}
+                    onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                        setFormData(prev => ({ ...prev, material: event.target.value }))
+                    }
+                    placeholder="e.g., Cotton, Polyester, Wool"
                 />
             </div>
 

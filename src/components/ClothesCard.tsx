@@ -139,17 +139,6 @@ export function ClothesCard({
 						<h3 className="text-sm truncate overflow-hidden whitespace-nowrap w-full">{item.name}</h3>
 						<p className="text-xs text-gray-600 truncate">{item.type}</p>
 					</div>
-					<div className='items-end text-right'>
-						{item.color && (
-							<div className="flex items-center gap-2">
-								<div
-									className="w-5 h-5 rounded-full border border-gray-300"
-									style={{ backgroundColor: item.color, marginLeft: '0.25rem', marginRight: '0.25rem' }}
-								/>
-								{/* <span className="text-xs text-gray-600 capitalize">{getColorName(item.color)}</span> */}
-							</div>
-						)}
-					</div>
 				</div>
 				{/* Wear today checkbox */}
 				<div className="flex items-center space-x-2" style={{ paddingTop: '0.5rem', paddingBottom: '0.5rem' }} data-no-card-toggle>
