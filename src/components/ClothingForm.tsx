@@ -41,6 +41,7 @@ export function ClothingForm({
     const [imageChanged, setImageChanged] = useState(false);
     const processingImageRef = useRef(false);
     const imageInputRef = useRef<HTMLInputElement | null>(null);
+    const cameraInputRef = useRef<HTMLInputElement | null>(null);
 
     const availableTypeOptions = useMemo(() => {
         const unique = new Set<string>();
@@ -227,10 +228,18 @@ export function ClothingForm({
                     <Button
                         type="button"
                         variant="outline"
+                        onClick={() => cameraInputRef.current?.click()}
+                        disabled={isProcessingImage}
+                    >
+                        Take Photo
+                    </Button>
+                    <Button
+                        type="button"
+                        variant="outline"
                         onClick={() => imageInputRef.current?.click()}
                         disabled={isProcessingImage}
                     >
-                        Choose image
+                        Choose from Files
                     </Button>
                     {formData.image && (
                         <Button
@@ -248,10 +257,17 @@ export function ClothingForm({
                     )}
                 </div>
                 <input
-                    ref={imageInputRef}
+                    ref={cameraInputRef}
                     type="file"
                     accept="image/*"
                     capture="environment"
+                    onChange={handleImageUpload}
+                    className="hidden"
+                />
+                <input
+                    ref={imageInputRef}
+                    type="file"
+                    accept="image/*"
                     onChange={handleImageUpload}
                     className="hidden"
                 />
