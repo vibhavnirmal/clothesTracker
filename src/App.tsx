@@ -784,7 +784,7 @@ export default function App() {
                 <div className="font-medium mr-2 text-black">
                   Filters: 
                 </div>
-                <div className='flex gap-2 flex-wrap'>
+                <div className='flex gap-2 flex-wrap items-center'>
                   <div className="">
                     <Select
                       value={typeFilter || 'all'}
@@ -829,6 +829,20 @@ export default function App() {
                       </SelectContent>
                     </Select>
                   </div>
+
+                  {(typeFilter || colorFilter) && (
+                    <button
+                      onClick={() => {
+                        setTypeFilter('');
+                        setColorFilter('');
+                      }}
+                      className="flex items-center gap-1 px-2 py-1 text-xs text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-md transition-colors"
+                      aria-label="Clear filters"
+                    >
+                      <X className="h-3 w-3" />
+                      Clear
+                    </button>
+                  )}
                 </div>
               </div>
 
