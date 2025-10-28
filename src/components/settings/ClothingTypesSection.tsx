@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react';
-import { ArrowLeft, ListPlus, Trash2, X } from 'lucide-react';
+import { ArrowLeft, Check, ListPlus, Pencil, Trash2, X } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { toast } from '../ui/sonner';
-import { createClothingType, deleteClothingType } from '../../lib/api';
+import { createClothingType, deleteClothingType, updateClothingType } from '../../lib/api';
 
 export interface ClothingTypesSectionProps {
   types: string[];
@@ -22,6 +22,8 @@ export function ClothingTypesSection({
   const [newType, setNewType] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [deletingType, setDeletingType] = useState<string | null>(null);
+  const [editingType, setEditingType] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState('');
 
   const sortedTypes = useMemo(() => [...types].sort((a, b) => a.localeCompare(b)), [types]);
 
@@ -68,12 +70,46 @@ export function ClothingTypesSection({
       const { types: updated } = await createClothingType(trimmed);
       onTypesUpdated(updated);
       setNewType('');
-      toast.success(`Added “${trimmed}” to clothing types.`);
+      toast.success(`Added "${trimmed}" to clothing types.`);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to add clothing type';
       toast.error(message);
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleStartEdit = (typeName: string) => {
+    setEditingType(typeName);
+    setEditValue(typeName);
+  };
+
+  const handleCancelEdit = () => {
+    setEditingType(null);
+    setEditValue('');
+  };
+
+  const handleSaveEdit = async (oldName: string) => {
+    const trimmed = editValue.trim();
+
+    if (!trimmed) {
+      toast.error('Type name cannot be empty.');
+      return;
+    }
+
+    if (trimmed === oldName) {
+      handleCancelEdit();
+      return;
+    }
+
+    try {
+      const { types: updated } = await updateClothingType(oldName, trimmed);
+      onTypesUpdated(updated);
+      handleCancelEdit();
+      toast.success(`Updated "${oldName}" to "${trimmed}".`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to update clothing type';
+      toast.error(message);
     }
   };
 
@@ -145,6 +181,7 @@ export function ClothingTypesSection({
             {sortedTypes.map(type => {
               const usageCount = typeUsage[type] ?? 0;
               const isDeleting = deletingType === type;
+              const isEditing = editingType === type;
 
               return (
                 <li
@@ -152,25 +189,74 @@ export function ClothingTypesSection({
                   className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-sm text-gray-700"
                 >
                   <div className="flex items-center justify-between gap-3">
-                    <span className="truncate" title={type}>
-                      {type}
-                    </span>
-                    {usageCount === 0 ? (
-                      <Button
-                        type="button"
-                        variant="destructive"
-                        size="sm"
-                        onClick={() => void handleDeleteType(type)}
-                        disabled={isDeleting}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                        Delete
-                      </Button>
+                    {isEditing ? (
+                      <div className="flex items-center gap-2 flex-1">
+                        <Input
+                          value={editValue}
+                          onChange={(e) => setEditValue(e.target.value)}
+                          maxLength={40}
+                          className="h-8"
+                          autoFocus
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              void handleSaveEdit(type);
+                            } else if (e.key === 'Escape') {
+                              handleCancelEdit();
+                            }
+                          }}
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => void handleSaveEdit(type)}
+                        >
+                          <Check className="h-4 w-4 text-green-600" />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={handleCancelEdit}
+                        >
+                          <X className="h-4 w-4 text-red-600" />
+                        </Button>
+                      </div>
                     ) : (
-                      <span className="text-[11px] font-medium uppercase tracking-wide text-gray-400">In use</span>
+                      <>
+                        <span className="truncate" title={type}>
+                          {type}
+                        </span>
+                        <div className="flex items-center gap-2">
+                          {usageCount === 0 && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleStartEdit(type)}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                          )}
+                          {usageCount === 0 ? (
+                            <Button
+                              type="button"
+                              variant="destructive"
+                              size="sm"
+                              onClick={() => void handleDeleteType(type)}
+                              disabled={isDeleting}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                              Delete
+                            </Button>
+                          ) : (
+                            <span className="text-[11px] font-medium uppercase tracking-wide text-gray-400">In use</span>
+                          )}
+                        </div>
+                      </>
                     )}
                   </div>
-                  {usageCount > 0 && (
+                  {usageCount > 0 && !isEditing && (
                     <p className="mt-1 text-[11px] text-gray-500">
                       {usageCount === 1 ? '1 item uses this type' : `${usageCount} items use this type`}
                     </p>

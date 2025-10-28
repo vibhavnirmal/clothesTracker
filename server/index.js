@@ -20,7 +20,9 @@ db.exec(`
     image TEXT,
     date_of_purchase TEXT,
     wears_since_wash INTEGER NOT NULL DEFAULT 0,
-    last_wash_date TEXT
+    last_wash_date TEXT,
+    size TEXT,
+    materials TEXT
   );
 
   CREATE TABLE IF NOT EXISTS wear_records (
@@ -38,6 +40,11 @@ db.exec(`
   );
 
   CREATE TABLE IF NOT EXISTS clothing_types (
+    name TEXT PRIMARY KEY COLLATE NOCASE,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S', 'now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS material_types (
     name TEXT PRIMARY KEY COLLATE NOCASE,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S', 'now'))
   );
@@ -70,6 +77,28 @@ DEFAULT_CLOTHING_TYPES.forEach(type => {
   insertDefaultClothingType.run(type);
 });
 
+const DEFAULT_MATERIAL_TYPES = [
+  'Cotton',
+  'Polyester',
+  'Wool',
+  'Silk',
+  'Linen',
+  'Nylon',
+  'Rayon',
+  'Spandex',
+  'Elastane',
+  'Denim',
+  'Leather',
+  'Acrylic',
+  'Viscose',
+  'Modal',
+];
+
+const insertDefaultMaterialType = db.prepare('INSERT OR IGNORE INTO material_types (name) VALUES (?)');
+DEFAULT_MATERIAL_TYPES.forEach(material => {
+  insertDefaultMaterialType.run(material);
+});
+
 const MAX_NAME_LENGTH = 80;
 const MAX_TYPE_LENGTH = 40;
 const MAX_COLOR_LENGTH = 9; // e.g. #RRGGBB or #RRGGBBAA
@@ -89,10 +118,18 @@ const hasDateOfPurchaseColumn = clothesTableColumns.some(column => column.name =
 if (!hasDateOfPurchaseColumn) {
   db.exec('ALTER TABLE clothes ADD COLUMN date_of_purchase TEXT');
 }
+const hasSizeColumn = clothesTableColumns.some(column => column.name === 'size');
+if (!hasSizeColumn) {
+  db.exec('ALTER TABLE clothes ADD COLUMN size TEXT');
+}
+const hasMaterialsColumn = clothesTableColumns.some(column => column.name === 'materials');
+if (!hasMaterialsColumn) {
+  db.exec('ALTER TABLE clothes ADD COLUMN materials TEXT');
+}
 
 const insertClothes = db.prepare(`
-  INSERT INTO clothes (id, name, type, color, image, date_of_purchase, wears_since_wash, last_wash_date)
-  VALUES (@id, @name, @type, @color, @image, @dateOfPurchase, 0, NULL)
+  INSERT INTO clothes (id, name, type, color, image, date_of_purchase, wears_since_wash, last_wash_date, size, materials)
+  VALUES (@id, @name, @type, @color, @image, @dateOfPurchase, 0, NULL, @size, @materials)
 `);
 
 const insertWearRecord = db.prepare(`
@@ -109,7 +146,15 @@ const selectAllClothingTypes = db.prepare('SELECT name FROM clothing_types ORDER
 const selectClothingTypeExists = db.prepare('SELECT 1 FROM clothing_types WHERE name = ? COLLATE NOCASE');
 const selectClothesCountByType = db.prepare('SELECT COUNT(*) AS count FROM clothes WHERE type = ? COLLATE NOCASE');
 const insertClothingType = db.prepare('INSERT INTO clothing_types (name) VALUES (?)');
+const updateClothingTypeName = db.prepare('UPDATE clothing_types SET name = ? WHERE name = ? COLLATE NOCASE');
+const updateClothesTypeName = db.prepare('UPDATE clothes SET type = ? WHERE type = ? COLLATE NOCASE');
 const deleteClothingTypeByName = db.prepare('DELETE FROM clothing_types WHERE name = ? COLLATE NOCASE');
+
+const selectAllMaterialTypes = db.prepare('SELECT name FROM material_types ORDER BY name COLLATE NOCASE');
+const selectMaterialTypeExists = db.prepare('SELECT 1 FROM material_types WHERE name = ? COLLATE NOCASE');
+const insertMaterialType = db.prepare('INSERT INTO material_types (name) VALUES (?)');
+const updateMaterialTypeName = db.prepare('UPDATE material_types SET name = ? WHERE name = ? COLLATE NOCASE');
+const deleteMaterialTypeByName = db.prepare('DELETE FROM material_types WHERE name = ? COLLATE NOCASE');
 
 const selectClothesById = db.prepare('SELECT id FROM clothes WHERE id = ?');
 const selectClothesRowById = db.prepare('SELECT * FROM clothes WHERE id = ?');
@@ -119,7 +164,9 @@ const updateClothesById = db.prepare(`
       type = @type,
       color = @color,
       image = @image,
-      date_of_purchase = @dateOfPurchase
+      date_of_purchase = @dateOfPurchase,
+      size = @size,
+      materials = @materials
   WHERE id = @id
 `);
 
@@ -163,6 +210,9 @@ function serializeClothes(row) {
     dateOfPurchase: row.date_of_purchase || undefined,
     wearsSinceWash: row.wears_since_wash,
     lastWashDate: row.last_wash_date || undefined,
+    size: row.size || undefined,
+    materials: row.materials ? JSON.parse(row.materials) : undefined,
+    createdAt: row.created_at || undefined,
   };
 }
 
@@ -191,7 +241,29 @@ function getSnapshot() {
 }
 
 function getClothingTypes() {
-  return selectAllClothingTypes.all().map(row => row.name);
+  const types = selectAllClothingTypes.all().map(row => row.name);
+  // Sort by usage count (most used first), then alphabetically
+  const typesWithCount = types.map(name => ({
+    name,
+    usageCount: selectClothesCountByType.get(name).count
+  }));
+  
+  console.log('Clothing types with usage count:', typesWithCount);
+  
+  const sorted = typesWithCount.sort((a, b) => {
+    if (b.usageCount !== a.usageCount) {
+      return b.usageCount - a.usageCount; // Most used first
+    }
+    return a.name.localeCompare(b.name); // Alphabetically if same count
+  });
+  
+  console.log('Sorted clothing types:', sorted);
+  
+  return sorted.map(item => item.name);
+}
+
+function getMaterialTypes() {
+  return selectAllMaterialTypes.all().map(row => row.name);
 }
 
 function isNonEmptyString(value, maxLength) {
@@ -272,6 +344,12 @@ function normalizeClothesPayload(payload, options = {}) {
   const dateOfPurchaseInput = hasDateField && typeof raw.dateOfPurchase === 'string'
     ? raw.dateOfPurchase.trim()
     : '';
+  
+  const hasSizeField = Object.prototype.hasOwnProperty.call(raw, 'size');
+  const sizeInput = hasSizeField && typeof raw.size === 'string' ? raw.size.trim() : '';
+  
+  const hasMaterialsField = Object.prototype.hasOwnProperty.call(raw, 'materials');
+  const materialsInput = raw.materials || null;
 
   const errors = [];
 
@@ -294,6 +372,50 @@ function normalizeClothesPayload(payload, options = {}) {
       const today = getTodayLocalDate();
       if (dateOfPurchaseInput > today) {
         errors.push('Date of purchase cannot be in the future.');
+      }
+    }
+  }
+
+  // Validate size (optional, max 20 characters)
+  if (hasSizeField && sizeInput.length > 0) {
+    if (sizeInput.length > 20) {
+      errors.push('Size must be at most 20 characters.');
+    }
+  }
+
+  // Validate materials (optional, must be object with numeric values 0-100 that sum to 100)
+  let normalizedMaterials = null;
+  if (hasMaterialsField && materialsInput !== null && materialsInput !== undefined) {
+    if (typeof materialsInput !== 'object' || Array.isArray(materialsInput)) {
+      errors.push('Materials must be an object mapping material names to percentages.');
+    } else {
+      const materialEntries = Object.entries(materialsInput);
+      if (materialEntries.length > 0) {
+        let sum = 0;
+        let allValid = true;
+        
+        for (const [materialName, percentage] of materialEntries) {
+          if (typeof materialName !== 'string' || materialName.trim().length === 0) {
+            errors.push('Material names must be non-empty strings.');
+            allValid = false;
+            break;
+          }
+          if (typeof percentage !== 'number' || percentage < 0 || percentage > 100) {
+            errors.push('Material percentages must be numbers between 0 and 100.');
+            allValid = false;
+            break;
+          }
+          sum += percentage;
+        }
+        
+        if (allValid) {
+          // Allow a small tolerance for floating point errors
+          if (Math.abs(sum - 100) > 0.01) {
+            errors.push('Material percentages must sum to exactly 100%.');
+          } else {
+            normalizedMaterials = materialsInput;
+          }
+        }
       }
     }
   }
@@ -326,9 +448,19 @@ function normalizeClothesPayload(payload, options = {}) {
 
   return {
     errors,
-    data: { name, type, color, image: normalizedImage, dateOfPurchase: dateOfPurchaseInput },
+    data: { 
+      name, 
+      type, 
+      color, 
+      image: normalizedImage, 
+      dateOfPurchase: dateOfPurchaseInput,
+      size: sizeInput.length > 0 ? sizeInput : undefined,
+      materials: normalizedMaterials || undefined
+    },
     hasImageField,
     hasDateField,
+    hasSizeField,
+    hasMaterialsField,
   };
 }
 
@@ -337,6 +469,7 @@ app.get('/api/state', (_req, res) => {
 });
 
 app.get('/api/types', (_req, res) => {
+  console.log('GET /api/types called at', new Date().toISOString());
   res.json({ types: getClothingTypes() });
 });
 
@@ -363,6 +496,47 @@ app.post('/api/types', (req, res) => {
   }
 
   res.status(201).json({ types: getClothingTypes() });
+});
+
+app.put('/api/types/:name', (req, res) => {
+  const oldName = typeof req.params?.name === 'string' ? req.params.name.trim() : '';
+  const newName = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+
+  if (!isNonEmptyString(oldName, MAX_TYPE_LENGTH)) {
+    return res.status(400).json({
+      message: 'Old type name must be a non-empty string up to 40 characters.',
+    });
+  }
+
+  if (!isNonEmptyString(newName, MAX_TYPE_LENGTH)) {
+    return res.status(400).json({
+      message: 'New type name must be a non-empty string up to 40 characters.',
+    });
+  }
+
+  if (!selectClothingTypeExists.get(oldName)) {
+    return res.status(404).json({
+      message: 'Clothing type not found.',
+    });
+  }
+
+  if (oldName.toLowerCase() !== newName.toLowerCase() && selectClothingTypeExists.get(newName)) {
+    return res.status(409).json({
+      message: 'A clothing type with this name already exists.',
+    });
+  }
+
+  try {
+    db.transaction(() => {
+      updateClothingTypeName.run(newName, oldName);
+      updateClothesTypeName.run(newName, oldName);
+    })();
+  } catch (error) {
+    console.error('Failed to update clothing type', error);
+    return res.status(500).json({ message: 'Failed to update clothing type' });
+  }
+
+  res.json({ types: getClothingTypes() });
 });
 
 app.delete('/api/types/:name', (req, res) => {
@@ -398,6 +572,99 @@ app.delete('/api/types/:name', (req, res) => {
   res.json({ types: getClothingTypes() });
 });
 
+app.get('/api/materials', (_req, res) => {
+  res.json({ materials: getMaterialTypes() });
+});
+
+app.post('/api/materials', (req, res) => {
+  const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+
+  if (!isNonEmptyString(name, MAX_TYPE_LENGTH)) {
+    return res.status(400).json({
+      message: 'Material name must be a non-empty string up to 40 characters.',
+    });
+  }
+
+  if (selectMaterialTypeExists.get(name)) {
+    return res.status(409).json({
+      message: 'A material type with this name already exists.',
+    });
+  }
+
+  try {
+    insertMaterialType.run(name);
+  } catch (error) {
+    console.error('Failed to insert material type', error);
+    return res.status(500).json({ message: 'Failed to add material type' });
+  }
+
+  res.status(201).json({ materials: getMaterialTypes() });
+});
+
+app.put('/api/materials/:name', (req, res) => {
+  const oldName = typeof req.params?.name === 'string' ? req.params.name.trim() : '';
+  const newName = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+
+  if (!isNonEmptyString(oldName, MAX_TYPE_LENGTH)) {
+    return res.status(400).json({
+      message: 'Old material name must be a non-empty string up to 40 characters.',
+    });
+  }
+
+  if (!isNonEmptyString(newName, MAX_TYPE_LENGTH)) {
+    return res.status(400).json({
+      message: 'New material name must be a non-empty string up to 40 characters.',
+    });
+  }
+
+  if (!selectMaterialTypeExists.get(oldName)) {
+    return res.status(404).json({
+      message: 'Material type not found.',
+    });
+  }
+
+  if (oldName.toLowerCase() !== newName.toLowerCase() && selectMaterialTypeExists.get(newName)) {
+    return res.status(409).json({
+      message: 'A material type with this name already exists.',
+    });
+  }
+
+  try {
+    updateMaterialTypeName.run(newName, oldName);
+  } catch (error) {
+    console.error('Failed to update material type', error);
+    return res.status(500).json({ message: 'Failed to update material type' });
+  }
+
+  res.json({ materials: getMaterialTypes() });
+});
+
+app.delete('/api/materials/:name', (req, res) => {
+  const rawName = typeof req.params?.name === 'string' ? req.params.name : '';
+  const name = rawName.trim();
+
+  if (!isNonEmptyString(name, MAX_TYPE_LENGTH)) {
+    return res.status(400).json({
+      message: 'Material name must be a non-empty string up to 40 characters.',
+    });
+  }
+
+  if (!selectMaterialTypeExists.get(name)) {
+    return res.status(404).json({
+      message: 'Material type not found.',
+    });
+  }
+
+  try {
+    deleteMaterialTypeByName.run(name);
+  } catch (error) {
+    console.error('Failed to delete material type', error);
+    return res.status(500).json({ message: 'Failed to delete material type' });
+  }
+
+  res.json({ materials: getMaterialTypes() });
+});
+
 app.post('/api/clothes', (req, res) => {
   const { errors, data } = normalizeClothesPayload(req.body, { allowOmittingImage: true });
 
@@ -416,6 +683,8 @@ app.post('/api/clothes', (req, res) => {
     color: data.color,
     image: typeof data.image === 'string' ? data.image : '',
     dateOfPurchase: data.dateOfPurchase.length > 0 ? data.dateOfPurchase : null,
+    size: data.size || null,
+    materials: data.materials ? JSON.stringify(data.materials) : null,
   });
   const row = selectClothesRowById.get(id);
   res.status(201).json(serializeClothes(row));
@@ -433,7 +702,7 @@ app.put('/api/clothes/:id', (req, res) => {
     return res.status(404).json({ message: 'Clothing item not found' });
   }
 
-  const { errors, data, hasImageField, hasDateField } = normalizeClothesPayload(req.body, { allowOmittingImage: true });
+  const { errors, data, hasImageField, hasDateField, hasSizeField, hasMaterialsField } = normalizeClothesPayload(req.body, { allowOmittingImage: true });
 
   if (errors.length > 0) {
     return res.status(400).json({
@@ -451,6 +720,10 @@ app.put('/api/clothes/:id', (req, res) => {
     dateOfPurchase: hasDateField
       ? (data.dateOfPurchase.length > 0 ? data.dateOfPurchase : null)
       : existing.date_of_purchase,
+    size: hasSizeField ? (data.size || null) : existing.size,
+    materials: hasMaterialsField 
+      ? (data.materials ? JSON.stringify(data.materials) : null)
+      : existing.materials,
   };
 
   updateClothesById.run(updatePayload);

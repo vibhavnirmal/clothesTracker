@@ -137,7 +137,15 @@ export function ClothesCard({
 				<div className="flex justify-between items-center">
 					<div className='items-start' style={{ paddingTop: '0.5rem', minWidth: 0 }}>
 						<h3 className="text-sm truncate overflow-hidden whitespace-nowrap w-full">{item.name}</h3>
-						<p className="text-xs text-gray-600 truncate">{item.type}</p>
+						<div className="flex items-center gap-2">
+							<p className="text-xs text-gray-600 truncate">{item.type}</p>
+							{item.size && (
+								<>
+									<span className="text-xs text-gray-400">•</span>
+									<span className="text-xs text-gray-600 font-medium">{item.size}</span>
+								</>
+							)}
+						</div>
 					</div>
 				</div>
 				{/* Wear today checkbox */}

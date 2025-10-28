@@ -4,15 +4,20 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group';
+import { Checkbox } from './ui/checkbox';
 import { toast } from './ui/sonner';
 import type { AddClothesPayload } from '../types';
 import { COLOR_OPTIONS, getColorName } from '../lib/colors';
 import { compressImage, estimateDataUrlBytes } from '../lib/imageCompression';
 import { buildInitialClothingForm } from '../lib/buildInitialClothingForm';
 
+// Size and material options for clothing items
+const SIZE_OPTIONS = ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL', 'Free Size', 'Custom'];
+
 interface ClothingFormProps {
     initialValues?: Partial<AddClothesPayload>;
     typeOptions: string[];
+    materialOptions: string[];
     onSubmit: (payload: AddClothesPayload) => Promise<void> | void;
     submitLabel?: string;
     onCancel?: () => void;
@@ -25,6 +30,7 @@ interface ClothingFormProps {
 export function ClothingForm({
     initialValues,
     typeOptions,
+    materialOptions,
     onSubmit,
     submitLabel = 'Save',
     onCancel,
@@ -39,6 +45,12 @@ export function ClothingForm({
     const [imageMeta, setImageMeta] = useState<{ size: number; quality: number; resized: boolean } | null>(null);
     const [imageError, setImageError] = useState<string | null>(null);
     const [imageChanged, setImageChanged] = useState(false);
+    const [selectedMaterials, setSelectedMaterials] = useState<string[]>(() => 
+        formData.materials ? Object.keys(formData.materials) : []
+    );
+    const [materialPercentages, setMaterialPercentages] = useState<Record<string, number>>(() => 
+        formData.materials || {}
+    );
     const processingImageRef = useRef(false);
     const imageInputRef = useRef<HTMLInputElement | null>(null);
     const cameraInputRef = useRef<HTMLInputElement | null>(null);
@@ -53,12 +65,27 @@ export function ClothingForm({
         if (formData.type && formData.type.trim().length > 0) {
             unique.add(formData.type.trim());
         }
-        return Array.from(unique).sort((a, b) => a.localeCompare(b));
+        // Preserve the order from typeOptions (already sorted by usage on backend)
+        // Only add unique types in the order they appear in typeOptions
+        const orderedTypes: string[] = [];
+        typeOptions.forEach(type => {
+            if (typeof type === 'string' && type.trim().length > 0 && unique.has(type.trim())) {
+                orderedTypes.push(type.trim());
+                unique.delete(type.trim());
+            }
+        });
+        // Add formData.type at the end if it wasn't in typeOptions
+        if (formData.type && formData.type.trim().length > 0 && unique.has(formData.type.trim())) {
+            orderedTypes.push(formData.type.trim());
+        }
+        return orderedTypes;
     }, [typeOptions, formData.type]);
 
     useEffect(() => {
         const nextForm = buildInitialClothingForm(initialValues);
         setFormData(nextForm);
+        setSelectedMaterials(nextForm.materials ? Object.keys(nextForm.materials) : []);
+        setMaterialPercentages(nextForm.materials || {});
         if (nextForm.image) {
             setImageMeta({
                 size: estimateDataUrlBytes(nextForm.image),
@@ -80,12 +107,29 @@ export function ClothingForm({
             return;
         }
 
+        // Validate materials sum to 100% if any are selected
+        if (selectedMaterials.length > 0) {
+            const sum = selectedMaterials.reduce((acc, mat) => acc + (materialPercentages[mat] || 0), 0);
+            if (Math.abs(sum - 100) > 0.01) {
+                toast.error(`Material percentages must sum to 100%. Current total: ${sum.toFixed(1)}%`);
+                return;
+            }
+        }
+
         const payload: AddClothesPayload = {
             name: formData.name,
             type: formData.type,
             color: formData.color,
             dateOfPurchase: formData.dateOfPurchase,
         };
+
+        if (formData.size) {
+            payload.size = formData.size;
+        }
+
+        if (selectedMaterials.length > 0) {
+            payload.materials = { ...materialPercentages };
+        }
 
         if (imageChanged) {
             payload.image = formData.image ?? '';
@@ -96,6 +140,8 @@ export function ClothingForm({
             await onSubmit(payload);
             toast.success(successMessage);
             setFormData(buildInitialClothingForm(initialValues));
+            setSelectedMaterials([]);
+            setMaterialPercentages({});
             setImageMeta(null);
             setImageError(null);
             setImageChanged(false);
@@ -220,6 +266,129 @@ export function ClothingForm({
                         }))
                     }
                 />
+            </div>
+
+            <div className="space-y-2">
+                <Label htmlFor="size">Size</Label>
+                <Select
+                    value={formData.size || 'none'}
+                    onValueChange={(value: string) =>
+                        setFormData(prev => ({ ...prev, size: value === 'none' ? undefined : value }))
+                    }
+                >
+                    <SelectTrigger>
+                        <SelectValue placeholder="Select size (optional)" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="none">No size</SelectItem>
+                        {SIZE_OPTIONS.map(size => (
+                            <SelectItem key={size} value={size}>
+                                {size}
+                            </SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
+            </div>
+
+            <div className="space-y-3">
+                <Label>Material Composition</Label>
+                <div className="space-y-2">
+                    <div className="grid grid-cols-2 gap-2">
+                        {materialOptions.map((material: string) => {
+                            const isSelected = selectedMaterials.includes(material);
+                            return (
+                                <div key={material} className="flex items-center space-x-2">
+                                    <Checkbox
+                                        id={`material-${material}`}
+                                        checked={isSelected}
+                                        onCheckedChange={(checked) => {
+                                            if (checked) {
+                                                const newMaterials = [...selectedMaterials, material];
+                                                setSelectedMaterials(newMaterials);
+                                                // Initialize with even distribution
+                                                const percentage = Math.floor(100 / newMaterials.length);
+                                                const newPercentages = { ...materialPercentages };
+                                                newMaterials.forEach((mat, idx) => {
+                                                    if (idx === newMaterials.length - 1) {
+                                                        // Last material gets the remainder
+                                                        newPercentages[mat] = 100 - (percentage * (newMaterials.length - 1));
+                                                    } else {
+                                                        newPercentages[mat] = percentage;
+                                                    }
+                                                });
+                                                setMaterialPercentages(newPercentages);
+                                                setFormData(prev => ({ ...prev, materials: newPercentages }));
+                                            } else {
+                                                const newMaterials = selectedMaterials.filter(m => m !== material);
+                                                setSelectedMaterials(newMaterials);
+                                                const newPercentages = { ...materialPercentages };
+                                                delete newPercentages[material];
+                                                // Redistribute percentages
+                                                if (newMaterials.length > 0) {
+                                                    const percentage = Math.floor(100 / newMaterials.length);
+                                                    newMaterials.forEach((mat, idx) => {
+                                                        if (idx === newMaterials.length - 1) {
+                                                            newPercentages[mat] = 100 - (percentage * (newMaterials.length - 1));
+                                                        } else {
+                                                            newPercentages[mat] = percentage;
+                                                        }
+                                                    });
+                                                }
+                                                setMaterialPercentages(newPercentages);
+                                                setFormData(prev => ({ 
+                                                    ...prev, 
+                                                    materials: newMaterials.length > 0 ? newPercentages : undefined 
+                                                }));
+                                            }
+                                        }}
+                                    />
+                                    <label
+                                        htmlFor={`material-${material}`}
+                                        className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+                                    >
+                                        {material}
+                                    </label>
+                                </div>
+                            );
+                        })}
+                    </div>
+
+                    {selectedMaterials.length > 0 && (
+                        <div className="space-y-3 pt-2 border-t">
+                            <p className="text-sm text-muted-foreground">
+                                Adjust percentages (Total: {selectedMaterials.reduce((acc, mat) => acc + (materialPercentages[mat] || 0), 0).toFixed(1)}%)
+                            </p>
+                            {selectedMaterials.map(material => (
+                                <div key={material} className="space-y-1">
+                                    <div className="flex justify-between text-sm">
+                                        <Label htmlFor={`slider-${material}`}>{material}</Label>
+                                        <span className="font-medium">{materialPercentages[material] || 0}%</span>
+                                    </div>
+                                    <input
+                                        id={`slider-${material}`}
+                                        type="range"
+                                        min="0"
+                                        max="100"
+                                        step="1"
+                                        value={materialPercentages[material] || 0}
+                                        onChange={(e) => {
+                                            const newValue = parseInt(e.target.value);
+                                            const newPercentages = { ...materialPercentages, [material]: newValue };
+                                            setMaterialPercentages(newPercentages);
+                                            setFormData(prev => ({ ...prev, materials: newPercentages }));
+                                        }}
+                                        className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                                    />
+                                </div>
+                            ))}
+                            {Math.abs(selectedMaterials.reduce((acc, mat) => acc + (materialPercentages[mat] || 0), 0) - 100) > 0.01 && (
+                                <p className="text-sm text-red-500">
+                                    ⚠️ Total must equal 100%
+                                </p>
+                            )}
+                        </div>
+                    )}
+                </div>
             </div>
 
             <div className="space-y-2">

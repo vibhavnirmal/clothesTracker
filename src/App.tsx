@@ -1,5 +1,5 @@
 import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Calendar, Home, PieChart, Settings as SettingsIcon, Waves, Check, Search, X } from 'lucide-react';
+import { Calendar, Home, PieChart, Settings as SettingsIcon, Waves, Check, Search, X, Filter, ArrowUpDown } from 'lucide-react';
 import { ClothesCard } from './components/ClothesCard';
 import { AddClothesModal } from './components/AddClothesModal';
 import { AddClothesPage } from './components/AddClothesPage';
@@ -17,6 +17,7 @@ import type { AddClothesPayload, ClothesItem, WearRecord, WashRecord } from './t
 import {
   createClothes,
   fetchClothingTypes,
+  fetchMaterialTypes,
   fetchSnapshot,
   recordWash,
   recordWear,
@@ -106,9 +107,11 @@ export default function App() {
   const [showIosInstallPrompt, setShowIosInstallPrompt] = useState(false);
   const [editingClothes, setEditingClothes] = useState<ClothesItem | null>(null);
   const [clothingTypes, setClothingTypes] = useState<string[]>([]);
+  const [materialTypes, setMaterialTypes] = useState<string[]>([]);
   const [typeFilter, setTypeFilter] = useState('');
   const [colorFilter, setColorFilter] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState<'name' | 'mostWorn' | 'leastWorn' | 'recentlyAdded' | 'needsWash'>('name');
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('overview');
   const [postAddRedirectTab, setPostAddRedirectTab] = useState<TabType>('home');
   const undoingWearIdsRef = useRef<Set<string>>(new Set());
@@ -169,24 +172,45 @@ export default function App() {
     }
   }, []);
 
+  const loadMaterialTypes = useCallback(async () => {
+    try {
+      const { materials } = await fetchMaterialTypes();
+      setMaterialTypes(materials);
+    } catch (err) {
+      console.error('Failed to load material types', err);
+    }
+  }, []);
 
   const handleTypesUpdated = useCallback((types: string[]) => {
     setClothingTypes(types);
   }, []);
 
+  const handleMaterialsUpdated = useCallback((materials: string[]) => {
+    setMaterialTypes(materials);
+  }, []);
+
   const availableTypes = useMemo(() => {
     const unique = new Set<string>();
     clothes.forEach(item => {
+      // If color filter is active, only include types that have that color
+      if (colorFilter) {
+        const itemColor = item.color?.trim().toUpperCase() ?? '';
+        if (itemColor !== colorFilter) return;
+      }
+      
       if (item.type?.trim()) {
         unique.add(item.type.trim());
       }
     });
     return Array.from(unique).sort((a, b) => a.localeCompare(b));
-  }, [clothes]);
+  }, [clothes, colorFilter]);
 
   const availableColors = useMemo(() => {
     const unique = new Map<string, { value: string; label: string }>();
     clothes.forEach(item => {
+      // If type filter is active, only include colors from that type
+      if (typeFilter && item.type !== typeFilter) return;
+      
       if (!item.color) return;
 
       const normalized = item.color.trim().toUpperCase();
@@ -201,7 +225,7 @@ export default function App() {
     });
 
     return Array.from(unique.values()).sort((a, b) => a.label.localeCompare(b.label));
-  }, [clothes]);
+  }, [clothes, typeFilter]);
 
   const clothingTypeUsage = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -239,6 +263,45 @@ export default function App() {
       return matchesType && matchesColor && matchesSearch;
     });
   }, [clothes, typeFilter, colorFilter, searchQuery]);
+
+  const sortedClothes = useMemo(() => {
+    const sorted = [...filteredClothes];
+    
+    switch (sortBy) {
+      case 'mostWorn':
+        return sorted.sort((a, b) => b.wearsSinceWash - a.wearsSinceWash);
+      case 'leastWorn':
+        return sorted.sort((a, b) => a.wearsSinceWash - b.wearsSinceWash);
+      case 'needsWash':
+        return sorted.sort((a, b) => {
+          // Items needing wash (3+) come first, then sort by wear count descending
+          const aNeeds = a.wearsSinceWash >= 3 ? 1 : 0;
+          const bNeeds = b.wearsSinceWash >= 3 ? 1 : 0;
+          if (aNeeds !== bNeeds) return bNeeds - aNeeds;
+          return b.wearsSinceWash - a.wearsSinceWash;
+        });
+      case 'recentlyAdded':
+        return sorted.sort((a, b) => {
+          // Sort by createdAt if available, otherwise by dateOfPurchase, then by ID
+          if (a.createdAt && b.createdAt) {
+            return b.createdAt.localeCompare(a.createdAt);
+          }
+          if (a.createdAt) return -1;
+          if (b.createdAt) return 1;
+          
+          if (a.dateOfPurchase && b.dateOfPurchase) {
+            return b.dateOfPurchase.localeCompare(a.dateOfPurchase);
+          }
+          if (a.dateOfPurchase) return -1;
+          if (b.dateOfPurchase) return 1;
+          
+          return b.id.localeCompare(a.id);
+        });
+      case 'name':
+      default:
+        return sorted.sort((a, b) => a.name.localeCompare(b.name));
+    }
+  }, [filteredClothes, sortBy]);
 
   const loadSnapshot = useCallback(async () => {
     setIsLoading(true);
@@ -544,7 +607,8 @@ export default function App() {
   useEffect(() => {
     void loadSnapshot();
     void loadClothingTypes();
-  }, [loadSnapshot, loadClothingTypes]);
+    void loadMaterialTypes();
+  }, [loadSnapshot, loadClothingTypes, loadMaterialTypes]);
 
   useEffect(() => {
     setSelectedForWearing(prev => {
@@ -574,8 +638,9 @@ export default function App() {
   useEffect(() => {
     if (activeTab === 'settings') {
       void loadClothingTypes();
+      void loadMaterialTypes();
     }
-  }, [activeTab, loadClothingTypes]);
+  }, [activeTab, loadClothingTypes, loadMaterialTypes]);
 
   const resetActionError = useCallback(() => setActionError(null), []);
 
@@ -780,18 +845,21 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="relative w-full z-50 flex flex-wrap justify-between items-center rounded-sm mb-4">
-                <div className="font-medium mr-2 text-black">
-                  Filters: 
-                </div>
-                <div className='flex gap-2 flex-wrap items-center'>
-                  <div className="">
+              {/* Compact Filter & Sort Toolbar */}
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 mb-4" style={{ padding: '12px'}}>
+                <div className="items-center"  style={{ paddingBottom: '12px' }}>
+                  {/* Filter Section */}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <div className="flex items-center gap-1 text-sm font-medium text-gray-700">
+                      <Filter className="h-4 w-4" />
+                      <span className="hidden sm:inline">Filter</span>
+                    </div>
                     <Select
                       value={typeFilter || 'all'}
                       onValueChange={value => setTypeFilter(value === 'all' ? '' : value)}
                     >
-                      <SelectTrigger size="sm" className="min-w-[140px]">
-                        <SelectValue placeholder="All types" />
+                      <SelectTrigger size="sm" className="min-w-[120px]">
+                        <SelectValue placeholder="Type" />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="all">All types</SelectItem>
@@ -802,16 +870,14 @@ export default function App() {
                         ))}
                       </SelectContent>
                     </Select>
-                  </div>
 
-                  <div className="">
                     <Select
                       value={colorFilter || 'all'}
                       onValueChange={value => setColorFilter(value === 'all' ? '' : value)}
                       disabled={availableColors.length === 0}
                     >
-                      <SelectTrigger size="sm" className="min-w-[140px]">
-                        <SelectValue placeholder="All colors" />
+                      <SelectTrigger size="sm" className="min-w-[120px]">
+                        <SelectValue placeholder="Color" />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="all">All colors</SelectItem>
@@ -830,42 +896,97 @@ export default function App() {
                     </Select>
                   </div>
 
-                  {(typeFilter || colorFilter) && (
-                    <button
-                      onClick={() => {
-                        setTypeFilter('');
-                        setColorFilter('');
-                      }}
-                      className="flex items-center gap-1 px-2 py-1 text-xs text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-md transition-colors"
-                      aria-label="Clear filters"
+                  {/* Divider */}
+                  <div className="hidden sm:block h-6 w-px bg-gray-300" />
+
+                  {/* Sort Section */}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <div className="flex items-center gap-1 text-sm font-medium text-gray-700">
+                      <ArrowUpDown className="h-4 w-4" />
+                      <span className="hidden sm:inline">Sort</span>
+                    </div>
+                    <Select
+                      value={sortBy}
+                      onValueChange={(value) => setSortBy(value as typeof sortBy)}
                     >
-                      <X className="h-3 w-3" />
-                      Clear
-                    </button>
+                      <SelectTrigger size="sm" className="min-w-[140px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="name">Name (A-Z)</SelectItem>
+                        <SelectItem value="mostWorn">Most Worn</SelectItem>
+                        <SelectItem value="leastWorn">Least Worn</SelectItem>
+                        <SelectItem value="needsWash">Needs Wash</SelectItem>
+                        <SelectItem value="recentlyAdded">Recently Added</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Clear Filters Button */}
+                  {(typeFilter || colorFilter) && (
+                    <div className="">
+                      <div className="hidden sm:block h-6 w-px bg-gray-300" />
+                      <button
+                        onClick={() => {
+                          setTypeFilter('');
+                          setColorFilter('');
+                        }}
+                        className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-700 hover:text-gray-900 bg-white hover:bg-gray-100 border border-gray-300 rounded-md transition-colors"
+                        aria-label="Clear filters"
+                      >
+                        <X className="h-3 w-3" />
+                        Clear
+                      </button>
+                    </div>
                   )}
                 </div>
+
+                {/* Active Filters Chips */}
+                {(typeFilter || colorFilter) && (
+                  <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-gray-200" style={{ paddingTop: '12px' }}>
+                    <span className="text-xs text-gray-600 flex items-center align-center center">Active:</span>
+                    {typeFilter && (
+                      <span className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded-full">
+                        {typeFilter}
+                        <button
+                          onClick={() => setTypeFilter('')}
+                          className="hover:bg-blue-200 rounded-full p-0.5"
+                          aria-label={`Remove ${typeFilter} filter`}
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </span>
+                    )}
+                    {colorFilter && (
+                      <span className="flex items-center gap-1 px-2 py-1 bg-blue-100 text-purple-700 text-xs rounded-full">
+                        <span
+                          className="h-2 w-2 rounded-full border border-purple-300"
+                          style={{ backgroundColor: colorFilter }}
+                        />
+                        <span className=''>
+                        {availableColors.find(c => c.value === colorFilter)?.label || 'Color'}
+                        </span>
+                        <button
+                          onClick={() => setColorFilter('')}
+                          className="hover:bg-purple-200 rounded-full p-0.5"
+                          aria-label="Remove color filter"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Results counter */}
               {(searchQuery || typeFilter || colorFilter) && (
                 <div className="mb-3 text-sm text-gray-600">
-                  Showing {filteredClothes.length} of {clothes.length} item{clothes.length !== 1 ? 's' : ''}
-                  {searchQuery && (
-                    <button
-                      onClick={() => {
-                        setSearchQuery('');
-                        setTypeFilter('');
-                        setColorFilter('');
-                      }}
-                      className="ml-2 text-blue-600 hover:text-blue-800 underline"
-                    >
-                      Clear all filters
-                    </button>
-                  )}
+                  Showing {sortedClothes.length} of {clothes.length} item{clothes.length !== 1 ? 's' : ''}
                 </div>
               )}
 
-              {filteredClothes.length === 0 ? (
+              {sortedClothes.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-gray-300 bg-white/60 p-6 text-center text-sm text-gray-500">
                   {searchQuery || typeFilter || colorFilter 
                     ? 'No clothes match your current filters.' 
@@ -873,7 +994,7 @@ export default function App() {
                 </div>
               ) : (
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                  {filteredClothes.map(item => {
+                  {sortedClothes.map(item => {
                     const status = wearStatus.get(item.id);
 
                     return (
@@ -920,6 +1041,7 @@ export default function App() {
         return (
           <AddClothesPage
             typeOptions={clothingTypes}
+            materialOptions={materialTypes}
             onSubmit={handleAddClothes}
             onCancel={() => {
               if (postAddRedirectTab === 'settings') {
@@ -996,7 +1118,9 @@ export default function App() {
           >
             <SettingsPage
               types={clothingTypes}
+              materials={materialTypes}
               onTypesUpdated={handleTypesUpdated}
+              onMaterialsUpdated={handleMaterialsUpdated}
               onBack={() => {
                 setSettingsSection('overview');
                 setActiveTab('analysis');
@@ -1111,8 +1235,11 @@ export default function App() {
           color: editingClothes.color,
           dateOfPurchase: editingClothes.dateOfPurchase ?? '',
           image: editingClothes.image ?? '',
+          size: editingClothes.size,
+          materials: editingClothes.materials,
         } : undefined}
         typeOptions={clothingTypes}
+        materialOptions={materialTypes}
         onManageTypes={() => {
           setEditingClothes(null);
           setSettingsSection('clothingTypes');

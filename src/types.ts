@@ -7,6 +7,9 @@ export interface ClothesItem {
   dateOfPurchase?: string;
   wearsSinceWash: number;
   lastWashDate?: string;
+  size?: string;
+  materials?: Record<string, number>; // e.g., { "Cotton": 70, "Polyester": 30 }
+  createdAt?: string;
 }
 
 export interface WearRecord {
@@ -33,4 +36,6 @@ export interface AddClothesPayload {
   color: string;
   image?: string;
   dateOfPurchase?: string;
+  size?: string;
+  materials?: Record<string, number>;
 }

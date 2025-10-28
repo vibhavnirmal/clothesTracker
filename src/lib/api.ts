@@ -52,8 +52,39 @@ export function createClothingType(name: string): JsonResponse<{ types: string[]
   });
 }
 
+export function updateClothingType(oldName: string, newName: string): JsonResponse<{ types: string[] }> {
+  return request<{ types: string[] }>(`/types/${encodeURIComponent(oldName)}`, {
+    method: 'PUT',
+    body: JSON.stringify({ name: newName }),
+  });
+}
+
 export function deleteClothingType(name: string): JsonResponse<{ types: string[] }> {
   return request<{ types: string[] }>(`/types/${encodeURIComponent(name)}`, {
+    method: 'DELETE',
+  });
+}
+
+export function fetchMaterialTypes(): JsonResponse<{ materials: string[] }> {
+  return request<{ materials: string[] }>('/materials');
+}
+
+export function createMaterialType(name: string): JsonResponse<{ materials: string[] }> {
+  return request<{ materials: string[] }>('/materials', {
+    method: 'POST',
+    body: JSON.stringify({ name }),
+  });
+}
+
+export function updateMaterialType(oldName: string, newName: string): JsonResponse<{ materials: string[] }> {
+  return request<{ materials: string[] }>(`/materials/${encodeURIComponent(oldName)}`, {
+    method: 'PUT',
+    body: JSON.stringify({ name: newName }),
+  });
+}
+
+export function deleteMaterialType(name: string): JsonResponse<{ materials: string[] }> {
+  return request<{ materials: string[] }>(`/materials/${encodeURIComponent(name)}`, {
     method: 'DELETE',
   });
 }

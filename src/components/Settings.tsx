@@ -3,12 +3,15 @@ import { CogIcon, Plus } from 'lucide-react';
 import { Button } from './ui/button';
 import type { SettingsProps } from './settings/types';
 import { ClothingTypesSection } from './settings/ClothingTypesSection';
+import { MaterialTypesSection } from './settings/MaterialTypesSection';
 
 export type { SettingsSection } from './settings/types';
 
 export function Settings({
   types,
+  materials,
   onTypesUpdated,
+  onMaterialsUpdated,
   onBack,
   activeSection,
   onSectionChange,
@@ -30,7 +33,22 @@ export function Settings({
     );
   }
 
+  if (activeSection === 'materialTypes') {
+    return (
+      <div className="pb-24">
+        <div className="p-4">
+          <MaterialTypesSection
+            materials={materials}
+            onMaterialsUpdated={onMaterialsUpdated}
+            onBackToOverview={() => onSectionChange('overview')}
+          />
+        </div>
+      </div>
+    );
+  }
+
   const sortedTypes = useMemo(() => [...types].sort((a, b) => a.localeCompare(b)), [types]);
+  const sortedMaterials = useMemo(() => [...materials].sort((a, b) => a.localeCompare(b)), [materials]);
 
   return (
     <div className="pb-24">
@@ -88,6 +106,27 @@ export function Settings({
               </p>
               <Button type="button" variant="outline" size="sm" onClick={() => onSectionChange('clothingTypes')}>
                 Manage types
+              </Button>
+            </div>
+          </div>
+        </section>
+
+        <section className="rounded-xl border border-gray-100 bg-white p-4 mb-4">
+          <div className="flex flex-col gap-2">
+            <div>
+              <h2 className="text-sm font-semibold text-gray-900">Material types</h2>
+              <p className="text-xs text-gray-500">
+                Control the material options for clothing composition.
+              </p>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs text-gray-500">
+                {sortedMaterials.length === 0
+                  ? 'No material types configured yet.'
+                  : `${sortedMaterials.length} material${sortedMaterials.length === 1 ? '' : 's'} available.`}
+              </p>
+              <Button type="button" variant="outline" size="sm" onClick={() => onSectionChange('materialTypes')}>
+                Manage materials
               </Button>
             </div>
           </div>

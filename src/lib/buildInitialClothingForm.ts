@@ -7,5 +7,7 @@ export function buildInitialClothingForm(values?: Partial<AddClothesPayload>): A
     color: values?.color ?? '',
     dateOfPurchase: values?.dateOfPurchase ?? '',
     image: values?.image ?? '',
+    size: values?.size,
+    materials: values?.materials,
   };
 }
