@@ -1,5 +1,5 @@
 import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Calendar, Home, PieChart, Settings as SettingsIcon, Waves, Check, Search, X, Filter, ArrowUpDown } from 'lucide-react';
+import { Calendar, Home, PieChart, Settings as SettingsIcon, Waves, Check, Search, X, Filter, ArrowUpDown, Plus } from 'lucide-react';
 import { ClothesCard } from './components/ClothesCard';
 import { AddClothesModal } from './components/AddClothesModal';
 import { AddClothesPage } from './components/AddClothesPage';
@@ -1034,6 +1034,34 @@ export default function App() {
 							</div>
 						)}
 					</div>
+				);
+
+			case 'add':
+				return (
+				<AddClothesPage
+					typeOptions={clothingTypes}
+					materialOptions={materialTypes}
+					onSubmit={handleAddClothes}
+					onCancel={() => {
+					if (postAddRedirectTab === 'settings') {
+						setSettingsSection('overview');
+					}
+					setActiveTab(postAddRedirectTab);
+					resetActionError();
+					}}
+					onManageTypes={() => {
+					setSettingsSection('clothingTypes');
+					setActiveTab('settings');
+					resetActionError();
+					}}
+					onSubmitSuccess={() => {
+					if (postAddRedirectTab === 'settings') {
+						setSettingsSection('overview');
+					}
+					setActiveTab(postAddRedirectTab);
+					resetActionError();
+					}}
+				/>
 				);
 
 			case 'wash':
