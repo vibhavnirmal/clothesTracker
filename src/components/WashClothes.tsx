@@ -131,7 +131,7 @@ export function WashClothes({ clothes, onMarkWashed }: WashClothesProps) {
   };
 
   return (
-    <div className="p-4 pb-36" style={{ paddingBottom: '9rem' }}>
+    <div className="p-4"  style={{ paddingBottom: '5rem', maxWidth: '800px', margin: '0 auto' }}>
       {/* Header */}
       <div className="flex items-center gap-3 mb-6">
         {/* <Button variant="ghost" size="sm" onClick={onBack}>

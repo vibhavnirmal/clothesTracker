@@ -51,7 +51,7 @@ export function Settings({
   const sortedMaterials = useMemo(() => [...materials].sort((a, b) => a.localeCompare(b)), [materials]);
 
   return (
-    <div className="pb-24">
+    <div className="" style={{ paddingBottom: '5rem', maxWidth: '800px', margin: '0 auto' }}>
       <div className="p-4 space-y-6">
         <header className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3 mb-6">

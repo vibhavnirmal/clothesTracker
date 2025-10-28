@@ -248,7 +248,7 @@ function getClothingTypes() {
     usageCount: selectClothesCountByType.get(name).count
   }));
   
-  console.log('Clothing types with usage count:', typesWithCount);
+//   console.log('Clothing types with usage count:', typesWithCount);
   
   const sorted = typesWithCount.sort((a, b) => {
     if (b.usageCount !== a.usageCount) {
@@ -257,7 +257,7 @@ function getClothingTypes() {
     return a.name.localeCompare(b.name); // Alphabetically if same count
   });
   
-  console.log('Sorted clothing types:', sorted);
+//   console.log('Sorted clothing types:', sorted);
   
   return sorted.map(item => item.name);
 }

@@ -30,6 +30,13 @@ interface TimelineDay {
 export function Timeline({ clothes, wearRecords, washRecords }: TimelineProps) {
 	const [filterType, setFilterType] = useState<string>('all');
 	const [filterColor, setFilterColor] = useState<string>('all');
+	const [selectedDate, setSelectedDate] = useState<string | null>(null);
+	const [currentMonth, setCurrentMonth] = useState<Date>(() => startOfToday());
+	const [touchStart, setTouchStart] = useState<number | null>(null);
+	const [touchEnd, setTouchEnd] = useState<number | null>(null);
+
+	// Minimum swipe distance (in px) to trigger month change
+	const minSwipeDistance = 50;
 
 	// Get unique types and colors for filters
 	const uniqueTypes = Array.from(new Set(clothes.map(c => c.type)));
@@ -197,17 +204,116 @@ export function Timeline({ clothes, wearRecords, washRecords }: TimelineProps) {
 		setFilterColor('all');
 	};
 
+	// Calendar helper functions
+	const getDaysInMonth = (date: Date) => {
+		const year = date.getFullYear();
+		const month = date.getMonth();
+		return new Date(year, month + 1, 0).getDate();
+	};
+
+	const getFirstDayOfMonth = (date: Date) => {
+		const year = date.getFullYear();
+		const month = date.getMonth();
+		return new Date(year, month, 1).getDay();
+	};
+
+	const formatDateKey = (date: Date) => {
+		const year = date.getFullYear();
+		const month = String(date.getMonth() + 1).padStart(2, '0');
+		const day = String(date.getDate()).padStart(2, '0');
+		return `${year}-${month}-${day}`;
+	};
+
+	const calendarData = useMemo(() => {
+		const activityMap = new Map<string, { wearCount: number; washCount: number }>();
+		
+		timeline.forEach(day => {
+			const wearCount = day.wear.reduce((sum, entry) => sum + entry.count, 0);
+			const washCount = day.wash.length;
+			activityMap.set(day.date, { wearCount, washCount });
+		});
+
+		return activityMap;
+	}, [timeline]);
+
+	const generateCalendarDays = () => {
+		const daysInMonth = getDaysInMonth(currentMonth);
+		const firstDay = getFirstDayOfMonth(currentMonth);
+		const days: Array<{ date: Date; dateKey: string; isCurrentMonth: boolean }> = [];
+
+		// Add empty cells for days before the first day of the month
+		for (let i = 0; i < firstDay; i++) {
+			days.push({ date: new Date(), dateKey: '', isCurrentMonth: false });
+		}
+
+		// Add days of the current month
+		for (let day = 1; day <= daysInMonth; day++) {
+			const date = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day);
+			days.push({ date, dateKey: formatDateKey(date), isCurrentMonth: true });
+		}
+
+		return days;
+	};
+
+	const changeMonth = (offset: number) => {
+		setCurrentMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + offset, 1));
+		setSelectedDate(null);
+	};
+
+	const onTouchStart = (e: React.TouchEvent) => {
+		setTouchEnd(null);
+		setTouchStart(e.targetTouches[0].clientX);
+	};
+
+	const onTouchMove = (e: React.TouchEvent) => {
+		setTouchEnd(e.targetTouches[0].clientX);
+	};
+
+	const onTouchEnd = () => {
+		if (!touchStart || !touchEnd) return;
+		
+		const distance = touchStart - touchEnd;
+		const isLeftSwipe = distance > minSwipeDistance;
+		const isRightSwipe = distance < -minSwipeDistance;
+		
+		if (isLeftSwipe) {
+			changeMonth(1); // Next month
+		}
+		if (isRightSwipe) {
+			changeMonth(-1); // Previous month
+		}
+	};
+
+	const selectedDayData = useMemo(() => {
+		if (!selectedDate) return null;
+		return timeline.find(day => day.date === selectedDate);
+	}, [selectedDate, timeline]);
+
 	return (
-		<div style={{ paddingBottom: '70px' }}>
-			<div className="p-4 space-y-4">
+		<div style={{ paddingBottom: '5rem', maxWidth: '800px', margin: '0 auto' }}>
+			<div className="p-4 sm:p-4 space-y-3 sm:space-y-4">
 				{/* Header */}
-				<div className="flex items-center gap-3 mb-6">
-					<Calendar className="w-5 h-5 text-blue-500" />
-					<h1>Timeline</h1>
+				<div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-6">
+					<div className="flex items-center gap-3">
+						<Calendar className="w-5 h-5 text-blue-500" />
+						<h1 className="text-lg sm:text-xl">Timeline</h1>
+					</div>
+					<div className="flex items-center gap-3 sm:gap-4 text-xs sm:text-sm">
+						<div className="flex items-center gap-2 text-blue-600">
+							<Shirt className="w-3 h-3 sm:w-4 sm:h-4" />
+							<span className="font-medium">{insights.totalWearCount}</span>
+							<span className="text-gray-500 hidden sm:inline">worn</span>
+						</div>
+						<div className="flex items-center gap-2 text-emerald-600">
+							<Droplets className="w-3 h-3 sm:w-4 sm:h-4" />
+							<span className="font-medium">{insights.totalWashCount}</span>
+							<span className="text-gray-500 hidden sm:inline">washed</span>
+						</div>
+					</div>
 				</div>
 
 				{/* Filters */}
-				<div className="bg-white rounded-lg p-4 space-y-3 shadow-sm">
+				{/* <div className="bg-white rounded-lg p-4 space-y-3 border-2 border-gray-200">
 					<div className="flex items-center gap-2 mb-2">
 						<Filter className="w-4 h-4 text-gray-600" />
 						<span className="text-sm">Filters</span>
@@ -257,10 +363,10 @@ export function Timeline({ clothes, wearRecords, washRecords }: TimelineProps) {
 							</Select>
 						</div>
 					</div>
-				</div>
+				</div> */}
 
 				{/* Overview */}
-				<div className="bg-white rounded-lg p-4 shadow-sm space-y-4">
+				{/* <div className="bg-white p-2 space-y-4">
 					<div className="flex flex-wrap items-center justify-between gap-3">
 						<div>
 							<p className="text-sm font-semibold text-gray-900">Activity overview</p>
@@ -299,143 +405,279 @@ export function Timeline({ clothes, wearRecords, washRecords }: TimelineProps) {
 							)}
 						</div>
 					</div>
+				</div> */}
 
-					<div className="rounded-lg border border-amber-100 bg-amber-50 p-4">
-						<p className="text-xs font-semibold uppercase tracking-wide text-amber-700">Needs attention</p>
-						{insights.needsWash.length > 0 ? (
-							<div className="mt-2 space-y-2">
-								{insights.needsWash.slice(0, 3).map(item => (
-									<div key={item.id} className="text-xs text-amber-800">
-										<span className="font-medium">{item.name}</span>
-										<span className="text-amber-700/70"> • {item.wearsSinceWash} wear{item.wearsSinceWash !== 1 ? 's' : ''} since wash</span>
-										<span className="block text-[11px] text-amber-700/70">Color: {getColorName(item.color)}</span>
-										<span className="block text-[11px] text-amber-700/70">Last washed: {formatLastWash(item)}</span>
+				{/* Calendar View */}
+				<div className="space-y-4">
+						{/* Month Navigation */}
+						<div className="bg-white rounded-lg p-3 sm:p-4">
+							<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+								<Button variant="outline" size="sm" onClick={() => changeMonth(-1)}>
+									←
+								</Button>
+								<h2 style={{ fontSize: 'clamp(14px, 4vw, 18px)', fontWeight: '600', textAlign: 'center' }}>
+									{currentMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+								</h2>
+								<Button variant="outline" size="sm" onClick={() => changeMonth(1)}>
+									→
+								</Button>
+							</div>
+
+							{/* Calendar Grid */}
+							<div 
+								style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 'clamp(2px, 0.5vw, 4px)', width: '100%' }}
+								onTouchStart={onTouchStart}
+								onTouchMove={onTouchMove}
+								onTouchEnd={onTouchEnd}
+							>
+								{/* Day headers */}
+								{['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
+									<div 
+										key={day} 
+										style={{ 
+											textAlign: 'center', 
+											fontSize: 'clamp(10px, 2.5vw, 12px)', 
+											fontWeight: '600', 
+											color: '#6B7280',
+											padding: 'clamp(4px, 1.5vw, 8px) 0'
+										}}
+									>
+										{day}
 									</div>
 								))}
-								{insights.needsWash.length > 3 && (
-									<p className="text-[11px] text-amber-600/80">
-										+{insights.needsWash.length - 3} more item{insights.needsWash.length - 3 !== 1 ? 's' : ''} ready for a wash
-									</p>
-								)}
+
+								{/* Calendar days */}
+								{generateCalendarDays().map((day, index) => {
+									if (!day.isCurrentMonth) {
+										return <div key={`empty-${index}`} style={{ aspectRatio: '1', minHeight: 'clamp(50px, 12vw, 70px)' }} />;
+									}
+
+									const activity = calendarData.get(day.dateKey);
+									const hasActivity = activity && (activity.wearCount > 0 || activity.washCount > 0);
+									const isSelected = selectedDate === day.dateKey;
+									const isToday = day.dateKey === formatDateKey(startOfToday());
+
+									const getButtonStyle = () => {
+										const baseStyle: React.CSSProperties = {
+											aspectRatio: '1',
+											minHeight: 'clamp(50px, 12vw, 70px)',
+											padding: 'clamp(3px, 1vw, 6px)',
+											borderRadius: 'clamp(4px, 1.5vw, 8px)',
+											border: '1px solid',
+											fontSize: 'clamp(12px, 3vw, 14px)',
+											cursor: 'pointer',
+											transition: 'all 0.2s',
+											width: '100%',
+											display: 'flex',
+											flexDirection: 'column',
+											alignItems: 'center',
+											justifyContent: 'flex-start',
+											gap: 'clamp(2px, 0.5vw, 4px)',
+										};
+
+										if (isSelected) {
+											return {
+												...baseStyle,
+												backgroundColor: '#3B82F6',
+												color: 'white',
+												borderColor: '#3B82F6',
+											};
+										}
+
+										if (isToday) {
+											return {
+												...baseStyle,
+												backgroundColor: '#EFF6FF',
+												borderColor: '#BFDBFE',
+												color: '#1E3A8A',
+												fontWeight: '600',
+											};
+										}
+
+										if (hasActivity) {
+											return {
+												...baseStyle,
+												backgroundColor: '#F9FAFB',
+												borderColor: '#E5E7EB',
+											};
+										}
+
+										return {
+											...baseStyle,
+											backgroundColor: 'white',
+											borderColor: '#F3F4F6',
+										};
+									};
+
+									return (
+										<button
+											key={day.dateKey}
+											onClick={() => setSelectedDate(day.dateKey)}
+											style={getButtonStyle()}
+											onMouseEnter={(e) => {
+												if (!isSelected && e.currentTarget) {
+													e.currentTarget.style.backgroundColor = isToday ? '#DBEAFE' : '#F3F4F6';
+												}
+											}}
+											onMouseLeave={(e) => {
+												if (!isSelected && e.currentTarget) {
+													if (isToday) {
+														e.currentTarget.style.backgroundColor = '#EFF6FF';
+													} else if (hasActivity) {
+														e.currentTarget.style.backgroundColor = '#F9FAFB';
+													} else {
+														e.currentTarget.style.backgroundColor = 'white';
+													}
+												}
+											}}
+										>
+											<span style={{ color: isSelected ? 'white' : 'inherit', fontWeight: isToday ? '600' : 'normal' }}>
+												{day.date.getDate()}
+											</span>
+											{hasActivity && (
+												<div style={{ 
+													display: 'flex', 
+													flexDirection: 'column', 
+													gap: 'clamp(1px, 0.3vw, 2px)', 
+													fontSize: 'clamp(8px, 2vw, 10px)', 
+													lineHeight: '1',
+													width: '100%',
+													alignItems: 'center'
+												}}>
+													{activity.wearCount > 0 && (
+														<div style={{ 
+															display: 'flex', 
+															alignItems: 'center', 
+															gap: 'clamp(2px, 0.5vw, 3px)',
+															color: isSelected ? 'white' : '#3B82F6',
+															fontWeight: '500'
+														}}>
+															<span style={{ fontSize: 'clamp(8px, 2vw, 10px)' }}>👕</span>
+															<span>{activity.wearCount}</span>
+														</div>
+													)}
+													{activity.washCount > 0 && (
+														<div style={{ 
+															display: 'flex', 
+															alignItems: 'center', 
+															gap: 'clamp(2px, 0.5vw, 3px)',
+															color: isSelected ? 'white' : '#10B981',
+															fontWeight: '500'
+														}}>
+															<span style={{ fontSize: 'clamp(8px, 2vw, 10px)' }}>💧</span>
+															<span>{activity.washCount}</span>
+														</div>
+													)}
+												</div>
+											)}
+										</button>
+									);
+								})}
 							</div>
-						) : (
-							<p className="mt-2 text-xs text-amber-700/70">Everything is fresh—no clothes need urgent attention.</p>
-						)}
-					</div>
-				</div>
-
-				{/* Timeline */}
-				<div className="space-y-4">
-					{timeline.length === 0 ? (
-						<div className="text-center py-12">
-							<Calendar className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-							<p className="text-gray-600">No activity yet</p>
-							<p className="text-sm text-gray-500">Start wearing and washing clothes to see your timeline!</p>
 						</div>
-					) : (
-						timeline.map(day => {
-							const wearCount = day.wear.reduce((sum, entry) => sum + entry.count, 0);
-							const washCount = day.wash.length;
-							const dueSoon = day.wear.filter(entry => entry.item.wearsSinceWash >= NEEDS_WASH_THRESHOLD);
 
-							return (
-								<div key={day.date} className="bg-white rounded-xl p-4 shadow-sm space-y-4">
-									<div className="flex items-start justify-between gap-3">
-										<div>
-											<h3 className="text-sm font-semibold text-gray-900">{formatDate(day.date)}</h3>
-											<p className="text-xs text-gray-500">
-												{wearCount} item{wearCount !== 1 ? 's' : ''} worn · {washCount} item{washCount !== 1 ? 's' : ''} washed
-											</p>
-										</div>
-										<span className="text-xs text-gray-400">
-											{formatIsoDate(day.date, {
-												month: 'short',
+						{/* Selected Day Details */}
+						{selectedDate && selectedDayData && (
+							<div className="bg-white rounded-xl p-4 space-y-4">
+								<div className="flex items-start justify-between gap-3">
+									<div>
+										<h3 className="text-sm font-semibold text-gray-900">{formatDate(selectedDate)}</h3>
+										<p className="text-xs text-gray-500">
+											{formatIsoDate(selectedDate, {
+												month: 'long',
 												day: 'numeric',
 												year: 'numeric',
 											}, 'en-US')}
-										</span>
+										</p>
 									</div>
+									<Button variant="outline" size="sm" onClick={() => setSelectedDate(null)}>
+										Close
+									</Button>
+								</div>
 
-									{day.wear.length > 0 && (
-										<section className="space-y-2">
-											<div className="flex items-center gap-2 text-blue-600">
-												<div className="rounded-full bg-blue-100 p-1">
-													<Shirt className="h-3 w-3" />
-												</div>
-												<p className="text-xs font-semibold uppercase tracking-wide">Wore</p>
-											</div>
-											<div className="space-y-2">
-												{day.wear.map(({ item, count, total }) => (
-													<div key={item.id} className="rounded-lg border border-blue-50 bg-blue-50/60 px-3 py-2 flex flex-row justify-between gap-2">
-														<div className="flex flex-wrap items-start justify-between gap-3">
-															<div className="flex items-start gap-3">
-																<div
-																	className="mt-1 h-3 w-3 rounded-full border border-gray-300"
-																	style={{ backgroundColor: item.color || '#e5e7eb' }}
-																/>
-																<div>
-																	<p className="text-sm font-medium text-gray-900">{item.name}</p>
-																	<p className="text-xs text-gray-500">
-																		{item.type} • worn {count} time{count !== 1 ? 's' : ''}
-																	</p>
-																	<p className="text-xs text-gray-500">Color: {getColorName(item.color)}</p>
-																	<p className="text-xs text-gray-500">Total wears: {total}</p>
-																	<p className="text-xs text-gray-400">
-																		Currently {item.wearsSinceWash} wear{item.wearsSinceWash !== 1 ? 's' : ''} since wash
-																	</p>
-																</div>
+								{selectedDayData.wear.length > 0 && (
+									<section className="space-y-2">
+										<div className="flex items-center gap-2 text-blue-600">
+											<Shirt className="h-4 w-4" />
+											<p className="text-xs font-semibold uppercase tracking-wide">Wore ({selectedDayData.wear.length})</p>
+										</div>
+										<div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))' }}>
+											{selectedDayData.wear.map(({ item, count }) => (
+												<div key={item.id} className="rounded-lg border border-blue-100 bg-blue-50/70 p-3">
+													<div className="flex items-center gap-3">
+														{item.image ? (
+															<ImageWithFallback
+																src={item.image}
+																alt={item.name}
+																className="h-12 w-12 rounded-md object-cover flex-shrink-0"
+															/>
+														) : (
+															<div
+																className="h-12 w-12 rounded-md flex items-center justify-center text-white text-xs font-semibold flex-shrink-0"
+																style={{ backgroundColor: item.color || '#9CA3AF' }}
+															>
+																{item.name.split(' ').map(word => word[0]).join('').slice(0, 2).toUpperCase()}
 															</div>
+														)}
+														<div className="flex-1 min-w-0">
+															<p className="text-sm font-medium text-gray-900 truncate">{item.name}</p>
+															<p className="text-xs text-gray-500">{item.type} • {count}×</p>
 															{item.wearsSinceWash >= NEEDS_WASH_THRESHOLD && (
-																<span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+																<span className="inline-block mt-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">
 																	Needs wash
 																</span>
 															)}
 														</div>
-														{/* show image */}
-														{item.image && (
-															<div className="mt-2">
-																<ImageWithFallback
-																	src={item.image}
-																	alt={item.name}
-																	className="h-20 w-20 object-cover rounded-md"
-																/>
+													</div>
+												</div>
+											))}
+										</div>
+									</section>
+								)}
+
+								{selectedDayData.wash.length > 0 && (
+									<section className="space-y-2">
+										<div className="flex items-center gap-2 text-emerald-600">
+											<Droplets className="h-4 w-4" />
+											<p className="text-xs font-semibold uppercase tracking-wide">Washed ({selectedDayData.wash.length})</p>
+										</div>
+										<div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))' }}>
+											{selectedDayData.wash.map(item => (
+												<div key={item.id} className="rounded-lg border border-emerald-100 bg-emerald-50/70 p-3">
+													<div className="flex items-center gap-3">
+														{item.image ? (
+															<ImageWithFallback
+																src={item.image}
+																alt={item.name}
+																className="h-12 w-12 rounded-md object-cover flex-shrink-0"
+															/>
+														) : (
+															<div
+																className="h-12 w-12 rounded-md flex items-center justify-center text-white text-xs font-semibold flex-shrink-0"
+																style={{ backgroundColor: item.color || '#9CA3AF' }}
+															>
+																{item.name.split(' ').map(word => word[0]).join('').slice(0, 2).toUpperCase()}
 															</div>
 														)}
+														<div className="flex-1 min-w-0">
+															<p className="text-sm font-medium text-gray-900 truncate">{item.name}</p>
+															<p className="text-xs text-gray-500">{item.type}</p>
+														</div>
 													</div>
-												))}
-											</div>
-										</section>
-									)}
-
-									{day.wash.length > 0 && (
-										<section className="space-y-2">
-											<div className="flex items-center gap-2 text-emerald-600">
-												<div className="rounded-full bg-emerald-100 p-1">
-													<Droplets className="h-3 w-3" />
 												</div>
-												<p className="text-xs font-semibold uppercase tracking-wide">Washed</p>
-											</div>
-											<div className="flex flex-wrap gap-2">
-												{day.wash.map(item => (
-													<div key={item.id} className="min-w-[140px] flex-1 rounded-lg border border-emerald-50 bg-emerald-50/70 px-3 py-2">
-														<p className="text-sm font-medium text-gray-900">{item.name}</p>
-														<p className="text-xs text-gray-500">{item.type}</p>
-														{/* <p className="text-xs text-gray-400">Wear count reset</p> */}
-													</div>
-												))}
-											</div>
-										</section>
-									)}
-
-									{dueSoon.length > 0 && (
-										<div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-											Consider washing soon: {dueSoon.map(entry => entry.item.name).join(', ')}
+											))}
 										</div>
-									)}
-								</div>
-							);
-						})
-					)}
+									</section>
+								)}
+							</div>
+						)}
+
+						{selectedDate && !selectedDayData && (
+							<div className="bg-white rounded-lg p-8 text-center text-gray-500">
+								<Calendar className="w-8 h-8 mx-auto mb-2 text-gray-400" />
+								<p className="text-sm">No activity on this day</p>
+							</div>
+						)}
 				</div>
 			</div>
 		</div>

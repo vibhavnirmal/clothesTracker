@@ -1,7 +1,9 @@
-import { useMemo, useState } from 'react';
-import { Activity, Shirt } from 'lucide-react';
+import { useMemo, useState, useEffect } from 'react';
+import { Activity, Shirt, X } from 'lucide-react';
 import type { ClothesItem, WearRecord, WashRecord } from '../types';
 import { getColorName } from '../lib/colors';
+import { ImageWithFallback } from './ImageWithFallback';
+import { Button } from './ui/button';
 
 interface AnalysisProps {
 	clothes: ClothesItem[];
@@ -17,6 +19,20 @@ interface ItemSummary {
 }
 
 export function Analysis({ clothes, wearRecords, washRecords }: AnalysisProps) {
+	const [selectedImage, setSelectedImage] = useState<{ src: string; name: string } | null>(null);
+	
+	// Prevent body scroll when modal is open
+	useEffect(() => {
+		if (selectedImage) {
+			document.body.style.overflow = 'hidden';
+		} else {
+			document.body.style.overflow = '';
+		}
+		return () => {
+			document.body.style.overflow = '';
+		};
+	}, [selectedImage]);
+	
 	const { totals, perItemSummaries, topWorn, topWashed } = useMemo(() => {
 		const wearCountMap = new Map<string, number>();
 		const washCountMap = new Map<string, number>();
@@ -145,7 +161,7 @@ export function Analysis({ clothes, wearRecords, washRecords }: AnalysisProps) {
 	};
 
 	return (
-		<div className="pb-24">
+		<div className="" style={{ paddingBottom: '5rem', maxWidth: '800px', margin: '0 auto' }}>
 			<div className="p-4 space-y-6">
 				<header className="flex items-center gap-3 mb-6">
 					<h1 className="flex items-center gap-2">
@@ -205,10 +221,34 @@ export function Analysis({ clothes, wearRecords, washRecords }: AnalysisProps) {
 							<ul className="mt-3 grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
 								{topWorn.map(({ item, totalWearCount }) => (
 									<li key={item.id} className="rounded-lg border border-blue-50 bg-blue-50/60 px-3 py-2">
-										<p className="text-sm font-medium text-gray-900">{item.name}</p>
-										<p className="text-xs text-gray-500">
-											{item.type} • {totalWearCount} wear{totalWearCount !== 1 ? 's' : ''}
-										</p>
+										<div className="flex items-center gap-3">
+											{item.image ? (
+												<button
+													type="button"
+													onClick={() => setSelectedImage({ src: item.image!, name: item.name })}
+													className="h-12 w-12 rounded-md flex-shrink-0 overflow-hidden cursor-pointer hover:opacity-80 transition-opacity"
+												>
+													<ImageWithFallback
+														src={item.image}
+														alt={item.name}
+														className="h-full w-full object-cover"
+													/>
+												</button>
+											) : (
+												<div
+													className="h-12 w-12 rounded-md flex items-center justify-center text-white text-xs font-semibold flex-shrink-0"
+													style={{ backgroundColor: item.color || '#9CA3AF' }}
+												>
+													{item.name.split(' ').map(word => word[0]).join('').slice(0, 2).toUpperCase()}
+												</div>
+											)}
+											<div className="flex-1 min-w-0">
+												<p className="text-sm font-medium text-gray-900 truncate">{item.name}</p>
+												<p className="text-xs text-gray-500">
+													{item.type} • {totalWearCount} wear{totalWearCount !== 1 ? 's' : ''}
+												</p>
+											</div>
+										</div>
 									</li>
 								))}
 							</ul>
@@ -297,6 +337,39 @@ export function Analysis({ clothes, wearRecords, washRecords }: AnalysisProps) {
 					)}
 				</section>
 			</div>
+
+			{/* Image Modal */}
+			{selectedImage && (
+				<div
+					className="fixed inset-0 z-50 flex items-center justify-center overflow-hidden"
+					style={{ backgroundColor: "rgba(0, 0, 0, 0.75)" }}
+					onClick={() => setSelectedImage(null)}
+				>
+					<div className="relative w-full h-full flex flex-col items-center justify-center p-4 sm:p-8">
+						<Button
+							variant="ghost"
+							size="icon"
+							className="absolute hover:bg-white text-white z-10 rounded-full"
+							style={{ top: "10px", right: "10px"}}
+							onClick={() => setSelectedImage(null)}
+						>
+							<X className="h-5 w-5" />
+						</Button>
+						<div className="flex flex-col items-center justify-center gap-4 max-w-full max-h-full">
+							<img
+								src={selectedImage.src}
+								alt={selectedImage.name}
+								className="max-w-full max-h-[calc(100vh-8rem)] w-auto h-auto object-contain rounded-lg shadow-2xl"
+								onClick={(e) => e.stopPropagation()}
+								style={{ maxWidth: 'calc(100vw - 4rem)', maxHeight: 'calc(100vh - 8rem)' }}
+							/>
+							<p className="text-center text-white text-sm sm:text-base font-medium px-4">
+								{selectedImage.name}
+							</p>
+						</div>
+					</div>
+				</div>
+			)}
 		</div>
 	);
 }
