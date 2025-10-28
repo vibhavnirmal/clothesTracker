@@ -119,7 +119,14 @@ export default function App() {
   const [nextRetryAt, setNextRetryAt] = useState<number | null>(null);
   const [retryCountdown, setRetryCountdown] = useState<number | null>(null);
 
-  const today = new Date().toISOString().split('T')[0];
+  // Get today's date in local timezone (YYYY-MM-DD)
+  const today = useMemo(() => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }, []);
 
   const wearStatus = useMemo(() => {
     const status = new Map<string, { lastWearDate?: string; wornToday: boolean }>();

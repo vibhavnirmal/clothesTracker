@@ -237,6 +237,18 @@ function isUuid(value) {
   return typeof value === 'string' && /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/.test(value);
 }
 
+/**
+ * Get today's date in YYYY-MM-DD format using local timezone
+ * @returns {string} Date string in YYYY-MM-DD format
+ */
+function getTodayLocalDate() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 function isDataUrlImage(value) {
   if (typeof value !== 'string') return false;
   return /^data:image\/[a-zA-Z0-9.+-]+;base64,/.test(value);
@@ -279,7 +291,7 @@ function normalizeClothesPayload(payload, options = {}) {
     if (!isValidIsoDate(dateOfPurchaseInput)) {
       errors.push('Date of purchase must be a valid date in YYYY-MM-DD format.');
     } else {
-      const today = new Date().toISOString().split('T')[0];
+      const today = getTodayLocalDate();
       if (dateOfPurchaseInput > today) {
         errors.push('Date of purchase cannot be in the future.');
       }
@@ -474,7 +486,7 @@ app.post('/api/wears', (req, res) => {
     return res.status(404).json({ message: `Clothing item ${missingId} was not found.` });
   }
 
-  const today = new Date().toISOString().split('T')[0];
+  const today = getTodayLocalDate();
 
   const run = db.transaction(ids => {
     ids.forEach(clothesId => {
@@ -558,7 +570,7 @@ app.post('/api/washes', (req, res) => {
     return res.status(404).json({ message: `Clothing item ${missingId} was not found.` });
   }
 
-  const today = new Date().toISOString().split('T')[0];
+  const today = getTodayLocalDate();
 
   const run = db.transaction(ids => {
     ids.forEach(clothesId => {
