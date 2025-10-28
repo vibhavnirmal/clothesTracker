@@ -1,5 +1,5 @@
 import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Calendar, Home, PieChart, Settings as SettingsIcon, Waves, Check } from 'lucide-react';
+import { Calendar, Home, PieChart, Settings as SettingsIcon, Waves, Check, Search, X } from 'lucide-react';
 import { ClothesCard } from './components/ClothesCard';
 import { AddClothesModal } from './components/AddClothesModal';
 import { AddClothesPage } from './components/AddClothesPage';
@@ -108,6 +108,7 @@ export default function App() {
   const [clothingTypes, setClothingTypes] = useState<string[]>([]);
   const [typeFilter, setTypeFilter] = useState('');
   const [colorFilter, setColorFilter] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('overview');
   const [postAddRedirectTab, setPostAddRedirectTab] = useState<TabType>('home');
   const undoingWearIdsRef = useRef<Set<string>>(new Set());
@@ -229,9 +230,15 @@ export default function App() {
       const matchesType = !typeFilter || item.type === typeFilter;
       const itemColor = item.color?.trim().toUpperCase() ?? '';
       const matchesColor = !colorFilter || itemColor === colorFilter;
-      return matchesType && matchesColor;
+      
+      // Search filter
+      const matchesSearch = !searchQuery || 
+        item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        item.type?.toLowerCase().includes(searchQuery.toLowerCase());
+      
+      return matchesType && matchesColor && matchesSearch;
     });
-  }, [clothes, typeFilter, colorFilter]);
+  }, [clothes, typeFilter, colorFilter, searchQuery]);
 
   const loadSnapshot = useCallback(async () => {
     setIsLoading(true);
@@ -739,7 +746,7 @@ export default function App() {
       case 'home':
         return (
           <div className="" style={{ paddingBottom: '5rem' }}>
-            <div className="text-center text-xl font-semibold font-sans text-gray-700 mt-2">
+            <div className="text-center px-2 text-xl font-semibold font-sans text-gray-700 mt-2">
               What are you wearing today (
               {(() => {
                 const d = new Date();
@@ -749,6 +756,30 @@ export default function App() {
               })()})&nbsp;?
             </div>
             <div className="p-4">
+              {/* Search Bar */}
+              <div className="mb-4">
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="Search by name or type..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    style={{paddingRight: '10px', paddingLeft: '10px'}}
+                  />
+                  {searchQuery && (
+                    <button
+                      onClick={() => setSearchQuery('')}
+                      className="absolute right-2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                      style={{ top: '12px' }}
+                      aria-label="Clear search"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
               <div className="relative w-full z-50 flex flex-wrap justify-between items-center rounded-sm mb-4">
                 <div className="font-medium mr-2 text-black">
                   Filters: 
@@ -801,9 +832,30 @@ export default function App() {
                 </div>
               </div>
 
+              {/* Results counter */}
+              {(searchQuery || typeFilter || colorFilter) && (
+                <div className="mb-3 text-sm text-gray-600">
+                  Showing {filteredClothes.length} of {clothes.length} item{clothes.length !== 1 ? 's' : ''}
+                  {searchQuery && (
+                    <button
+                      onClick={() => {
+                        setSearchQuery('');
+                        setTypeFilter('');
+                        setColorFilter('');
+                      }}
+                      className="ml-2 text-blue-600 hover:text-blue-800 underline"
+                    >
+                      Clear all filters
+                    </button>
+                  )}
+                </div>
+              )}
+
               {filteredClothes.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-gray-300 bg-white/60 p-6 text-center text-sm text-gray-500">
-                  No clothes match your current filters.
+                  {searchQuery || typeFilter || colorFilter 
+                    ? 'No clothes match your current filters.' 
+                    : 'No clothes yet. Add some to get started!'}
                 </div>
               ) : (
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
