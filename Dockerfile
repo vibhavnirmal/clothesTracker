@@ -22,6 +22,12 @@ RUN npm prune --omit=dev
 FROM node:22-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
+ENV TZ=America/Chicago
+
+# Install tzdata for timezone support
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends tzdata \
+  && rm -rf /var/lib/apt/lists/*
 
 # Copy runtime dependencies and application code
 COPY --from=build /app/package.json ./

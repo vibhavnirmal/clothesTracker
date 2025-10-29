@@ -14,6 +14,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: "4242"
+      TZ: America/Chicago
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:4242', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"]
