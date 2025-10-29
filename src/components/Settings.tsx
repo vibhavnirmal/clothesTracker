@@ -22,6 +22,10 @@ export function Settings({
   const [showPurgeDialog, setShowPurgeDialog] = useState(false);
   const [isPurging, setIsPurging] = useState(false);
 
+  // All hooks must be called before any conditional returns
+  const sortedTypes = useMemo(() => [...types].sort((a, b) => a.localeCompare(b)), [types]);
+  const sortedMaterials = useMemo(() => [...materials].sort((a, b) => a.localeCompare(b)), [materials]);
+
   const handlePurge = async () => {
     setIsPurging(true);
     try {
@@ -61,25 +65,11 @@ export function Settings({
     );
   }
 
-  const sortedTypes = useMemo(() => [...types].sort((a, b) => a.localeCompare(b)), [types]);
-  const sortedMaterials = useMemo(() => [...materials].sort((a, b) => a.localeCompare(b)), [materials]);
-
   return (
     <div className="" style={{ paddingBottom: '5rem', maxWidth: '800px', margin: '0 auto' }}>
       <div className="p-4 space-y-6">
         <header className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3 mb-6">
-            {/* {onBack && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                onClick={onBack}
-                aria-label="Back to analysis"
-              >
-                <ArrowLeft className="h-4 w-4" />
-              </Button>
-            )} */}
             <div>
               <h1 className="flex items-center gap-2">
                 <CogIcon className="h-5 w-5 text-blue-500 inline-block mr-1" />
@@ -157,7 +147,7 @@ export function Settings({
                 These actions cannot be undone. Proceed with caution.
               </p>
             </div>
-            <div className="bg-white rounded-lg p-3 border border-red-200">
+            <div className="bg-white rounded-lg p-4 border border-red-200">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <h3 className="text-sm font-semibold text-gray-900">Purge activity history</h3>

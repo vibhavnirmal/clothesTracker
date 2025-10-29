@@ -1132,6 +1132,7 @@ export default function App() {
 								Opening settings...
 							</div>
 						)}
+						key="settings"
 					>
 						<SettingsPage
 							types={clothingTypes}
