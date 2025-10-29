@@ -759,11 +759,15 @@ app.post('/api/wears', (req, res) => {
     return res.status(404).json({ message: `Clothing item ${missingId} was not found.` });
   }
 
-  const today = getTodayLocalDate();
+  // Allow custom date or default to today
+  const customDate = req.body?.date;
+  const dateToUse = (typeof customDate === 'string' && customDate.match(/^\d{4}-\d{2}-\d{2}$/))
+    ? customDate
+    : getTodayLocalDate();
 
   const run = db.transaction(ids => {
     ids.forEach(clothesId => {
-      insertWearRecord.run({ id: randomUUID(), clothesId, date: today });
+      insertWearRecord.run({ id: randomUUID(), clothesId, date: dateToUse });
       incrementWearCount.run(clothesId);
     });
   });

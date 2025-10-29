@@ -89,10 +89,10 @@ export function deleteMaterialType(name: string): JsonResponse<{ materials: stri
   });
 }
 
-export function recordWear(clothesIds: string[]): JsonResponse<Pick<AppSnapshot, 'clothes' | 'wearRecords'>> {
+export function recordWear(clothesIds: string[], date?: string): JsonResponse<Pick<AppSnapshot, 'clothes' | 'wearRecords'>> {
   return request('/wears', {
     method: 'POST',
-    body: JSON.stringify({ clothesIds }),
+    body: JSON.stringify({ clothesIds, date }),
   });
 }
 

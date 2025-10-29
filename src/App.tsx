@@ -823,6 +823,21 @@ export default function App() {
 		}
 	}, [resetActionError]);
 
+	const handleAddToDate = useCallback(async (clothesIds: string[], date: string) => {
+		resetActionError();
+		try {
+			const { clothes: updatedClothes, wearRecords: updatedWearRecords } = await recordWear(clothesIds, date);
+			setClothes(updatedClothes);
+			setWearRecords(updatedWearRecords);
+			toast.success(`Added ${clothesIds.length} item${clothesIds.length === 1 ? '' : 's'} to ${date}`);
+		} catch (err) {
+			const message = err instanceof Error ? err.message : 'Failed to add clothes to date';
+			setActionError(message);
+			toast.error(message);
+			throw err;
+		}
+	}, [resetActionError]);
+
 	const renderTabContent = () => {
 		switch (activeTab) {
 			case 'home':
@@ -1103,6 +1118,7 @@ export default function App() {
 							clothes={clothes}
 							wearRecords={wearRecords}
 							washRecords={washRecords}
+							onAddToDate={handleAddToDate}
 						/>
 					</Suspense>
 				);

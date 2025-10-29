@@ -1,11 +1,12 @@
 import React, { useMemo, useState } from 'react';
-import { Calendar, Shirt, Droplets, Filter } from 'lucide-react';
+import { Calendar, Shirt, Droplets, Filter, Plus } from 'lucide-react';
 import { Button } from './ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import type { ClothesItem, WearRecord, WashRecord } from '../types';
 import { getColorName } from '../lib/colors';
 import { addDays, compareIsoDatesDesc, formatIsoDate, parseIsoDateToLocal, startOfToday } from '../lib/date';
 import { ImageWithFallback } from './ImageWithFallback';
+import { AddToDateModal } from './AddToDateModal';
 
 const NEEDS_WASH_THRESHOLD = 4;
 
@@ -13,6 +14,7 @@ interface TimelineProps {
 	clothes: ClothesItem[];
 	wearRecords: WearRecord[];
 	washRecords: WashRecord[];
+	onAddToDate: (clothesIds: string[], date: string) => Promise<void>;
 }
 
 interface WearSummary {
@@ -27,13 +29,14 @@ interface TimelineDay {
 	wash: ClothesItem[];
 }
 
-export function Timeline({ clothes, wearRecords, washRecords }: TimelineProps) {
+export function Timeline({ clothes, wearRecords, washRecords, onAddToDate }: TimelineProps) {
 	const [filterType, setFilterType] = useState<string>('all');
 	const [filterColor, setFilterColor] = useState<string>('all');
 	const [selectedDate, setSelectedDate] = useState<string | null>(null);
 	const [currentMonth, setCurrentMonth] = useState<Date>(() => startOfToday());
 	const [touchStart, setTouchStart] = useState<number | null>(null);
 	const [touchEnd, setTouchEnd] = useState<number | null>(null);
+	const [showAddModal, setShowAddModal] = useState(false);
 
 	// Minimum swipe distance (in px) to trigger month change
 	const minSwipeDistance = 50;
@@ -290,7 +293,7 @@ export function Timeline({ clothes, wearRecords, washRecords }: TimelineProps) {
 	}, [selectedDate, timeline]);
 
 	return (
-		<div style={{ paddingBottom: '5rem', maxWidth: '800px', margin: '0 auto' }}>
+		<div style={{ paddingBottom: '8rem', maxWidth: '800px', margin: '0 auto' }}>
 			<div className="p-4 sm:p-4 space-y-3 sm:space-y-4">
 				{/* Header */}
 				<div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-6">
@@ -408,7 +411,7 @@ export function Timeline({ clothes, wearRecords, washRecords }: TimelineProps) {
 				</div> */}
 
 				{/* Calendar View */}
-				<div className="space-y-4">
+				<div className="space-y-4 mb-8">
 						{/* Month Navigation */}
 						<div className="bg-white rounded-lg p-3 sm:p-4">
 							<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
@@ -590,9 +593,20 @@ export function Timeline({ clothes, wearRecords, washRecords }: TimelineProps) {
 											}, 'en-US')}
 										</p>
 									</div>
-									<Button variant="outline" size="sm" onClick={() => setSelectedDate(null)}>
-										Close
-									</Button>
+									<div className="flex gap-2">
+										<Button 
+											variant="outline" 
+											size="sm" 
+											onClick={() => setShowAddModal(true)}
+											className="text-black cursor-pointer"
+										>
+											<Plus className="w-4 h-4 mr-1" />
+											Add
+										</Button>
+										<Button variant="outline" className='cursor-pointer' size="sm" onClick={() => setSelectedDate(null)}>
+											Close
+										</Button>
+									</div>
 								</div>
 
 								{selectedDayData.wear.length > 0 && (
@@ -613,7 +627,7 @@ export function Timeline({ clothes, wearRecords, washRecords }: TimelineProps) {
 															/>
 														) : (
 															<div
-																className="h-12 w-12 rounded-md flex items-center justify-center text-white text-xs font-semibold flex-shrink-0"
+																className="h-12 w-12 rounded-md flex items-center justify-center text-xs font-semibold flex-shrink-0"
 																style={{ backgroundColor: item.color || '#9CA3AF' }}
 															>
 																{item.name.split(' ').map(word => word[0]).join('').slice(0, 2).toUpperCase()}
@@ -652,10 +666,7 @@ export function Timeline({ clothes, wearRecords, washRecords }: TimelineProps) {
 																className="h-12 w-12 rounded-md object-cover flex-shrink-0"
 															/>
 														) : (
-															<div
-																className="h-12 w-12 rounded-md flex items-center justify-center text-white text-xs font-semibold flex-shrink-0"
-																style={{ backgroundColor: item.color || '#9CA3AF' }}
-															>
+															<div className="h-12 w-12 rounded-md flex items-center justify-center text-xs font-semibold flex-shrink-0">
 																{item.name.split(' ').map(word => word[0]).join('').slice(0, 2).toUpperCase()}
 															</div>
 														)}
@@ -673,13 +684,52 @@ export function Timeline({ clothes, wearRecords, washRecords }: TimelineProps) {
 						)}
 
 						{selectedDate && !selectedDayData && (
-							<div className="bg-white rounded-lg p-8 text-center text-gray-500">
-								<Calendar className="w-8 h-8 mx-auto mb-2 text-gray-400" />
-								<p className="text-sm">No activity on this day</p>
+							<div className="bg-white rounded-lg">
+								<div className="flex items-start justify-between gap-3 p-4 border-b border-gray-200">
+									<div>
+										<h3 className="text-sm font-semibold text-gray-900">{formatDate(selectedDate)}</h3>
+										<p className="text-xs text-gray-500">
+											{formatIsoDate(selectedDate, {
+												month: 'long',
+												day: 'numeric',
+												year: 'numeric',
+											}, 'en-US')}
+										</p>
+									</div>
+									<div className="flex gap-2">
+										<Button 
+											variant="outline"
+											onClick={() => setShowAddModal(true)}
+											className="text-black cursor-pointer"
+											size="sm"
+										>
+											<Plus className="w-4 h-4 mr-1" />
+											Add
+										</Button>
+										<Button variant="outline" className='cursor-pointer' size="sm" onClick={() => setSelectedDate(null)}>
+											Close
+										</Button>
+									</div>
+								</div>
+								<div className="p-4 text-center">
+									<Calendar className="w-12 h-12 mx-auto mb-3 text-gray-400" />
+									<p className="text-base font-medium text-gray-700 mb-2">No activity on this day</p>
+									<p className="text-sm text-gray-500">Click "Add" above to record clothes worn on this date</p>
+								</div>
 							</div>
 						)}
 				</div>
 			</div>
+
+			{/* Add To Date Modal */}
+			{showAddModal && selectedDate && (
+				<AddToDateModal
+					clothes={clothes}
+					date={selectedDate}
+					onAdd={onAddToDate}
+					onClose={() => setShowAddModal(false)}
+				/>
+			)}
 		</div>
 	);
 }
