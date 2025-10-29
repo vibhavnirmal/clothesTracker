@@ -10,4 +10,5 @@ export interface SettingsProps {
   onSectionChange: (section: SettingsSection) => void;
   typeUsage: Record<string, number>;
   onCreateClothing: () => void;
+  onPurgeDatabase: () => void;
 }

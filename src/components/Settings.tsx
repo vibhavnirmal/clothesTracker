@@ -1,5 +1,5 @@
-import { useMemo } from 'react';
-import { CogIcon, Plus } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { CogIcon, Plus, Trash2, AlertTriangle } from 'lucide-react';
 import { Button } from './ui/button';
 import type { SettingsProps } from './settings/types';
 import { ClothingTypesSection } from './settings/ClothingTypesSection';
@@ -17,7 +17,21 @@ export function Settings({
   onSectionChange,
   typeUsage,
   onCreateClothing,
+  onPurgeDatabase,
 }: SettingsProps) {
+  const [showPurgeDialog, setShowPurgeDialog] = useState(false);
+  const [isPurging, setIsPurging] = useState(false);
+
+  const handlePurge = async () => {
+    setIsPurging(true);
+    try {
+      await onPurgeDatabase();
+      setShowPurgeDialog(false);
+    } finally {
+      setIsPurging(false);
+    }
+  };
+
   if (activeSection === 'clothingTypes') {
     return (
       <div className="pb-24">
@@ -131,7 +145,87 @@ export function Settings({
             </div>
           </div>
         </section>
+
+        <section className="rounded-xl border border-red-100 bg-red-50 p-4 mb-4">
+          <div className="flex flex-col gap-3">
+            <div>
+              <h2 className="text-sm font-semibold text-red-900 flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4" />
+                Danger Zone
+              </h2>
+              <p className="text-xs text-red-700 mt-1">
+                These actions cannot be undone. Proceed with caution.
+              </p>
+            </div>
+            <div className="bg-white rounded-lg p-3 border border-red-200">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-900">Purge activity history</h3>
+                  <p className="text-xs text-gray-500">
+                    Delete all wear and wash records. Your clothes will remain but all history will be erased.
+                  </p>
+                </div>
+                <Button 
+                  type="button" 
+                  variant="destructive" 
+                  size="sm"
+                  onClick={() => setShowPurgeDialog(true)}
+                  className="flex items-center gap-2"
+                  disabled={isPurging}
+                >
+                  <Trash2 className="h-4 w-4" />
+                  {isPurging ? 'Purging...' : 'Purge data'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </section>
       </div>
+
+      {showPurgeDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => !isPurging && setShowPurgeDialog(false)}>
+          <div className="bg-white rounded-lg shadow-lg p-6 max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start gap-3 mb-4">
+              <AlertTriangle className="h-6 w-6 text-red-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <h3 className="text-lg font-semibold text-red-600 mb-2">Confirm Database Purge</h3>
+                <div className="text-sm text-gray-600 space-y-2">
+                  <p>This will permanently delete:</p>
+                  <ul className="list-disc list-inside space-y-1 ml-2">
+                    <li>All wear records (when you wore items)</li>
+                    <li>All wash records (when you washed items)</li>
+                    <li>Wear counters and last wash dates</li>
+                  </ul>
+                  <p className="font-semibold text-gray-900 mt-3">
+                    Your clothing items will remain, but all activity history will be lost.
+                  </p>
+                  <p className="text-xs text-red-600 font-semibold mt-2">
+                    This action cannot be undone.
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="flex gap-2 justify-end mt-6">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setShowPurgeDialog(false)}
+                disabled={isPurging}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={handlePurge}
+                disabled={isPurging}
+              >
+                {isPurging ? 'Purging...' : 'Yes, purge all activity'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

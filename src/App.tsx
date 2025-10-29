@@ -23,6 +23,7 @@ import {
 	recordWear,
 	undoWear,
 	updateClothes,
+	purgeDatabase,
 } from './lib/api';
 import { getColorName } from './lib/colors';
 import type { SettingsSection } from './components/Settings';
@@ -805,6 +806,23 @@ export default function App() {
 		}
 	}, [registerSync, resetActionError]);
 
+	const handlePurgeDatabase = useCallback(async () => {
+		resetActionError();
+		try {
+			const { clothes: updatedClothes, wearRecords: updatedWearRecords, washRecords: updatedWashRecords } = await purgeDatabase();
+			setClothes(updatedClothes);
+			setWearRecords(updatedWearRecords);
+			setWashRecords(updatedWashRecords);
+			setSelectedForWearing(new Set());
+			toast.success('Database purged successfully. All activity history has been deleted.');
+		} catch (err) {
+			const message = err instanceof Error ? err.message : 'Failed to purge database';
+			setActionError(message);
+			toast.error(message);
+			throw err;
+		}
+	}, [resetActionError]);
+
 	const renderTabContent = () => {
 		switch (activeTab) {
 			case 'home':
@@ -1129,6 +1147,7 @@ export default function App() {
 							onSectionChange={setSettingsSection}
 							typeUsage={clothingTypeUsage}
 							onCreateClothing={() => openAddPage('settings')}
+							onPurgeDatabase={handlePurgeDatabase}
 						/>
 					</Suspense>
 				);

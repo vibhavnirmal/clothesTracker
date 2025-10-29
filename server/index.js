@@ -864,6 +864,54 @@ app.post('/api/washes', (req, res) => {
   }
 });
 
+app.post('/api/purge', (req, res) => {
+  try {
+    // Delete all wear and wash records
+    db.prepare('DELETE FROM wear_records').run();
+    db.prepare('DELETE FROM wash_records').run();
+    
+    // Reset all clothes data (wears_since_wash and last_wash_date)
+    db.prepare(`
+      UPDATE clothes 
+      SET wears_since_wash = 0, 
+          last_wash_date = NULL
+    `).run();
+    
+    console.log('Database purged: all wear/wash records deleted, clothes data reset');
+    
+    // Return the updated state
+    const clothes = db.prepare(`
+      SELECT 
+        id,
+        name,
+        type,
+        color,
+        image,
+        date_of_purchase as dateOfPurchase,
+        wears_since_wash as wearsSinceWash,
+        last_wash_date as lastWashDate,
+        size,
+        materials
+      FROM clothes
+      ORDER BY name COLLATE NOCASE
+    `).all();
+
+    const parsedClothes = clothes.map(item => ({
+      ...item,
+      materials: item.materials ? JSON.parse(item.materials) : undefined,
+    }));
+
+    res.json({
+      clothes: parsedClothes,
+      wearRecords: [],
+      washRecords: [],
+    });
+  } catch (error) {
+    console.error('Failed to purge database', error);
+    res.status(500).json({ message: 'Failed to purge database' });
+  }
+});
+
 app.delete('/api/clothes/:id', (req, res) => {
   const { id } = req.params;
   const info = deleteClothesById.run(id);

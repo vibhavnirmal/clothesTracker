@@ -109,3 +109,9 @@ export function recordWash(clothesIds: string[]): JsonResponse<Pick<AppSnapshot,
     body: JSON.stringify({ clothesIds }),
   });
 }
+
+export function purgeDatabase(): JsonResponse<Pick<AppSnapshot, 'clothes' | 'wearRecords' | 'washRecords'>> {
+  return request('/purge', {
+    method: 'POST',
+  });
+}
