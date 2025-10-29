@@ -11,312 +11,318 @@ import { AddToDateModal } from './AddToDateModal';
 const NEEDS_WASH_THRESHOLD = 4;
 
 interface TimelineProps {
-	clothes: ClothesItem[];
-	wearRecords: WearRecord[];
-	washRecords: WashRecord[];
-	onAddToDate: (clothesIds: string[], date: string) => Promise<void>;
+  clothes: ClothesItem[];
+  wearRecords: WearRecord[];
+  washRecords: WashRecord[];
+  onAddToDate: (clothesIds: string[], date: string) => Promise<void>;
 }
 
 interface WearSummary {
-	item: ClothesItem;
-	count: number;
-	total: number;
+  item: ClothesItem;
+  count: number;
+  total: number;
 }
 
 interface TimelineDay {
-	date: string;
-	wear: WearSummary[];
-	wash: ClothesItem[];
+  date: string;
+  wear: WearSummary[];
+  wash: ClothesItem[];
 }
 
 export function Timeline({ clothes, wearRecords, washRecords, onAddToDate }: TimelineProps) {
-	const [filterType, setFilterType] = useState<string>('all');
-	const [filterColor, setFilterColor] = useState<string>('all');
-	const [selectedDate, setSelectedDate] = useState<string | null>(null);
-	const [currentMonth, setCurrentMonth] = useState<Date>(() => startOfToday());
-	const [touchStart, setTouchStart] = useState<number | null>(null);
-	const [touchEnd, setTouchEnd] = useState<number | null>(null);
-	const [showAddModal, setShowAddModal] = useState(false);
+  const [filterType, setFilterType] = useState<string>('all');
+  const [filterColor, setFilterColor] = useState<string>('all');
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [currentMonth, setCurrentMonth] = useState<Date>(() => startOfToday());
+  const [touchStart, setTouchStart] = useState<number | null>(null);
+  const [touchEnd, setTouchEnd] = useState<number | null>(null);
+  const [showAddModal, setShowAddModal] = useState(false);
 
-	// Minimum swipe distance (in px) to trigger month change
-	const minSwipeDistance = 50;
+  // Minimum swipe distance (in px) to trigger month change
+  const minSwipeDistance = 50;
 
-	// Get unique types and colors for filters
-	const uniqueTypes = Array.from(new Set(clothes.map(c => c.type)));
-	const uniqueColors = Array.from(new Set(clothes.map(c => c.color).filter(Boolean)));
+  // Get unique types and colors for filters
+  const uniqueTypes = Array.from(new Set(clothes.map(c => c.type)));
+  const uniqueColors = Array.from(new Set(clothes.map(c => c.color).filter(Boolean)));
 
-	const { timeline, insights } = useMemo(() => {
-		const matchesFilters = (item: ClothesItem) => {
-			if (filterType !== 'all' && item.type !== filterType) return false;
-			if (filterColor !== 'all' && item.color !== filterColor) return false;
-			return true;
-		};
+  const { timeline, insights } = useMemo(() => {
+    const matchesFilters = (item: ClothesItem) => {
+      if (filterType !== 'all' && item.type !== filterType) return false;
+      if (filterColor !== 'all' && item.color !== filterColor) return false;
+      return true;
+    };
 
-		const clothesById = new Map(clothes.map(item => [item.id, item]));
-		const filteredClothes = clothes.filter(matchesFilters);
-		const filteredClothesIds = new Set(filteredClothes.map(item => item.id));
+    const clothesById = new Map(clothes.map(item => [item.id, item]));
+    const filteredClothes = clothes.filter(matchesFilters);
+    const filteredClothesIds = new Set(filteredClothes.map(item => item.id));
 
-		const filteredWearRecords = wearRecords.filter(record => filteredClothesIds.has(record.clothesId));
-		const filteredWashRecords = washRecords.filter(record => filteredClothesIds.has(record.clothesId));
+    const filteredWearRecords = wearRecords.filter(record => filteredClothesIds.has(record.clothesId));
+    const filteredWashRecords = washRecords.filter(record => filteredClothesIds.has(record.clothesId));
 
-		const wearCountMap = new Map<string, number>();
-		filteredWearRecords.forEach(record => {
-			wearCountMap.set(record.clothesId, (wearCountMap.get(record.clothesId) ?? 0) + 1);
-		});
+    const wearCountMap = new Map<string, number>();
+    filteredWearRecords.forEach(record => {
+      wearCountMap.set(record.clothesId, (wearCountMap.get(record.clothesId) ?? 0) + 1);
+    });
 
-		const dayBuckets = new Map<string, { wear: Map<string, WearSummary>; wash: Map<string, ClothesItem> }>();
+    const dayBuckets = new Map<string, { wear: Map<string, WearSummary>; wash: Map<string, ClothesItem> }>();
 
-		const getBucket = (date: string) => {
-			let bucket = dayBuckets.get(date);
-			if (!bucket) {
-				bucket = { wear: new Map(), wash: new Map() };
-				dayBuckets.set(date, bucket);
-			}
-			return bucket;
-		};
+    const getBucket = (date: string) => {
+      let bucket = dayBuckets.get(date);
+      if (!bucket) {
+        bucket = { wear: new Map(), wash: new Map() };
+        dayBuckets.set(date, bucket);
+      }
+      return bucket;
+    };
 
-		filteredWearRecords.forEach(record => {
-			const item = clothesById.get(record.clothesId);
-			if (!item) return;
-			const bucket = getBucket(record.date);
-			const existing = bucket.wear.get(item.id);
-			if (existing) {
-				existing.count += 1;
-			} else {
-				bucket.wear.set(item.id, { item, count: 1, total: 1 });
-			}
-		});
+    filteredWearRecords.forEach(record => {
+      const item = clothesById.get(record.clothesId);
+      if (!item) return;
+      const bucket = getBucket(record.date);
+      const existing = bucket.wear.get(item.id);
+      if (existing) {
+        existing.count += 1;
+      } else {
+        bucket.wear.set(item.id, { item, count: 1, total: 1 });
+      }
+    });
 
-		filteredWashRecords.forEach(record => {
-			const item = clothesById.get(record.clothesId);
-			if (!item) return;
-			const bucket = getBucket(record.date);
-			if (!bucket.wash.has(item.id)) {
-				bucket.wash.set(item.id, item);
-			}
-		});
+    filteredWashRecords.forEach(record => {
+      const item = clothesById.get(record.clothesId);
+      if (!item) return;
+      const bucket = getBucket(record.date);
+      if (!bucket.wash.has(item.id)) {
+        bucket.wash.set(item.id, item);
+      }
+    });
 
-		const timelineDays: TimelineDay[] = Array.from(dayBuckets.entries())
-			.map(([date, bucket]) => ({
-				date,
-				wear: Array.from(bucket.wear.values())
-					.map(summary => ({
-						...summary,
-						total: wearCountMap.get(summary.item.id) ?? summary.count,
-					}))
-					.sort((a, b) => a.item.name.localeCompare(b.item.name)),
-				wash: Array.from(bucket.wash.values()).sort((a, b) => a.name.localeCompare(b.name)),
-			}))
-			.sort((a, b) => compareIsoDatesDesc(a.date, b.date));
+    const timelineDays: TimelineDay[] = Array.from(dayBuckets.entries())
+      .map(([date, bucket]) => ({
+        date,
+        wear: Array.from(bucket.wear.values())
+          .map(summary => ({
+            ...summary,
+            total: wearCountMap.get(summary.item.id) ?? summary.count,
+          }))
+          .sort((a, b) => a.item.name.localeCompare(b.item.name)),
+        wash: Array.from(bucket.wash.values()).sort((a, b) => a.name.localeCompare(b.name)),
+      }))
+      .sort((a, b) => compareIsoDatesDesc(a.date, b.date));
 
-		let mostWornItem: { item: ClothesItem; count: number } | null = null;
-		wearCountMap.forEach((count, id) => {
-			const item = clothesById.get(id);
-			if (!item) return;
-			if (!mostWornItem || count > mostWornItem.count) {
-				mostWornItem = { item, count };
-			}
-		});
+    let mostWornItem: { item: ClothesItem; count: number } | null = null;
+    wearCountMap.forEach((count, id) => {
+      const item = clothesById.get(id);
+      if (!item) return;
+      if (!mostWornItem || count > mostWornItem.count) {
+        mostWornItem = { item, count };
+      }
+    });
 
-		const needsWash = filteredClothes
-			.filter(item => item.wearsSinceWash >= NEEDS_WASH_THRESHOLD)
-			.sort((a, b) => b.wearsSinceWash - a.wearsSinceWash);
+    const needsWash = filteredClothes
+      .filter(item => item.wearsSinceWash >= NEEDS_WASH_THRESHOLD)
+      .sort((a, b) => b.wearsSinceWash - a.wearsSinceWash);
 
-		return {
-			timeline: timelineDays,
-			insights: {
-				totalWearCount: filteredWearRecords.length,
-				totalWashCount: filteredWashRecords.length,
-				mostWornItem: mostWornItem as { item: ClothesItem; count: number } | null,
-				needsWash,
-			} as {
-				totalWearCount: number;
-				totalWashCount: number;
-				mostWornItem: { item: ClothesItem; count: number } | null;
-				needsWash: ClothesItem[];
-			},
-		};
-	}, [clothes, wearRecords, washRecords, filterType, filterColor]);
+    return {
+      timeline: timelineDays,
+      insights: {
+        totalWearCount: filteredWearRecords.length,
+        totalWashCount: filteredWashRecords.length,
+        mostWornItem: mostWornItem as { item: ClothesItem; count: number } | null,
+        needsWash,
+      } as {
+        totalWearCount: number;
+        totalWashCount: number;
+        mostWornItem: { item: ClothesItem; count: number } | null;
+        needsWash: ClothesItem[];
+      },
+    };
+  }, [clothes, wearRecords, washRecords, filterType, filterColor]);
 
-	const formatDate = (dateString: string) => {
-		const date = parseIsoDateToLocal(dateString);
-		if (!date) {
-			return dateString;
-		}
+  const formatDate = (dateString: string) => {
+    const date = parseIsoDateToLocal(dateString);
+    if (!date) {
+      return dateString;
+    }
 
-		const today = startOfToday();
-		const yesterday = addDays(today, -1);
+    const today = startOfToday();
+    const yesterday = addDays(today, -1);
 
-		if (date.getTime() === today.getTime()) {
-			return 'Today';
-		}
+    if (date.getTime() === today.getTime()) {
+      return 'Today';
+    }
 
-		if (date.getTime() === yesterday.getTime()) {
-			return 'Yesterday';
-		}
+    if (date.getTime() === yesterday.getTime()) {
+      return 'Yesterday';
+    }
 
-		return date.toLocaleDateString('en-US', {
-			weekday: 'short',
-			month: 'short',
-			day: 'numeric',
-		});
-	};
+    return date.toLocaleDateString('en-US', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+    });
+  };
 
-	const rangeLabel = useMemo(() => {
-		if (timeline.length === 0) return '';
+  const rangeLabel = useMemo(() => {
+    if (timeline.length === 0) return '';
 
-		const newest = parseIsoDateToLocal(timeline[0].date);
-		const oldest = parseIsoDateToLocal(timeline[timeline.length - 1].date);
+    const newest = parseIsoDateToLocal(timeline[0].date);
+    const oldest = parseIsoDateToLocal(timeline[timeline.length - 1].date);
 
-		if (!newest || !oldest) {
-			return '';
-		}
+    if (!newest || !oldest) {
+      return '';
+    }
 
-		const sameDay = newest.getTime() === oldest.getTime();
-		const includeYear = newest.getFullYear() !== oldest.getFullYear();
+    const sameDay = newest.getTime() === oldest.getTime();
+    const includeYear = newest.getFullYear() !== oldest.getFullYear();
 
-		const formatOptions: Intl.DateTimeFormatOptions = {
-			month: 'short',
-			day: 'numeric',
-			...(includeYear ? { year: 'numeric' } : {}),
-		};
+    const formatOptions: Intl.DateTimeFormatOptions = {
+      month: 'short',
+      day: 'numeric',
+      ...(includeYear ? { year: 'numeric' } : {}),
+    };
 
-		if (sameDay) {
-			return formatIsoDate(timeline[0].date, formatOptions, 'en-US');
-		}
+    if (sameDay) {
+      return formatIsoDate(timeline[0].date, formatOptions, 'en-US');
+    }
 
-		const rangeStart = formatIsoDate(timeline[timeline.length - 1].date, formatOptions, 'en-US');
-		const rangeEnd = formatIsoDate(timeline[0].date, formatOptions, 'en-US');
-		return `${rangeStart} – ${rangeEnd}`;
-	}, [timeline]);
+    const rangeStart = formatIsoDate(timeline[timeline.length - 1].date, formatOptions, 'en-US');
+    const rangeEnd = formatIsoDate(timeline[0].date, formatOptions, 'en-US');
+    return `${rangeStart} – ${rangeEnd}`;
+  }, [timeline]);
 
-	const formatLastWash = (item: ClothesItem) => {
-		if (!item.lastWashDate) {
-			return 'No wash recorded yet';
-		}
+  const formatLastWash = (item: ClothesItem) => {
+    if (!item.lastWashDate) {
+      return 'No wash recorded yet';
+    }
 
-		return formatIsoDate(item.lastWashDate, {
-			month: 'short',
-			day: 'numeric',
-			year: 'numeric',
-		}, 'en-US');
-	};
+    return formatIsoDate(item.lastWashDate, {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    }, 'en-US');
+  };
 
-	const clearFilters = () => {
-		setFilterType('all');
-		setFilterColor('all');
-	};
+  const clearFilters = () => {
+    setFilterType('all');
+    setFilterColor('all');
+  };
 
-	// Calendar helper functions
-	const getDaysInMonth = (date: Date) => {
-		const year = date.getFullYear();
-		const month = date.getMonth();
-		return new Date(year, month + 1, 0).getDate();
-	};
+  // Calendar helper functions
+  const getDaysInMonth = (date: Date) => {
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    return new Date(year, month + 1, 0).getDate();
+  };
 
-	const getFirstDayOfMonth = (date: Date) => {
-		const year = date.getFullYear();
-		const month = date.getMonth();
-		return new Date(year, month, 1).getDay();
-	};
+  const getFirstDayOfMonth = (date: Date) => {
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    return new Date(year, month, 1).getDay();
+  };
 
-	const formatDateKey = (date: Date) => {
-		const year = date.getFullYear();
-		const month = String(date.getMonth() + 1).padStart(2, '0');
-		const day = String(date.getDate()).padStart(2, '0');
-		return `${year}-${month}-${day}`;
-	};
+  const formatDateKey = (date: Date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
 
-	const calendarData = useMemo(() => {
-		const activityMap = new Map<string, { wearCount: number; washCount: number }>();
-		
-		timeline.forEach(day => {
-			const wearCount = day.wear.reduce((sum, entry) => sum + entry.count, 0);
-			const washCount = day.wash.length;
-			activityMap.set(day.date, { wearCount, washCount });
-		});
+  const calendarData = useMemo(() => {
+    const activityMap = new Map<string, { wearCount: number; washCount: number }>();
 
-		return activityMap;
-	}, [timeline]);
+    timeline.forEach(day => {
+      const wearCount = day.wear.reduce((sum, entry) => sum + entry.count, 0);
+      const washCount = day.wash.length;
+      activityMap.set(day.date, { wearCount, washCount });
+    });
 
-	const generateCalendarDays = () => {
-		const daysInMonth = getDaysInMonth(currentMonth);
-		const firstDay = getFirstDayOfMonth(currentMonth);
-		const days: Array<{ date: Date; dateKey: string; isCurrentMonth: boolean }> = [];
+    return activityMap;
+  }, [timeline]);
 
-		// Add empty cells for days before the first day of the month
-		for (let i = 0; i < firstDay; i++) {
-			days.push({ date: new Date(), dateKey: '', isCurrentMonth: false });
-		}
+  const generateCalendarDays = () => {
+    const daysInMonth = getDaysInMonth(currentMonth);
+    const firstDay = getFirstDayOfMonth(currentMonth);
+    const days: Array<{ date: Date; dateKey: string; isCurrentMonth: boolean }> = [];
 
-		// Add days of the current month
-		for (let day = 1; day <= daysInMonth; day++) {
-			const date = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day);
-			days.push({ date, dateKey: formatDateKey(date), isCurrentMonth: true });
-		}
+    // Add empty cells for days before the first day of the month
+    for (let i = 0; i < firstDay; i++) {
+      days.push({ date: new Date(), dateKey: '', isCurrentMonth: false });
+    }
 
-		return days;
-	};
+    // Add days of the current month
+    for (let day = 1; day <= daysInMonth; day++) {
+      const date = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day);
+      days.push({ date, dateKey: formatDateKey(date), isCurrentMonth: true });
+    }
 
-	const changeMonth = (offset: number) => {
-		setCurrentMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + offset, 1));
-		setSelectedDate(null);
-	};
+    return days;
+  };
 
-	const onTouchStart = (e: React.TouchEvent) => {
-		setTouchEnd(null);
-		setTouchStart(e.targetTouches[0].clientX);
-	};
+  const changeMonth = (offset: number) => {
+    setCurrentMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + offset, 1));
+    setSelectedDate(null);
+  };
 
-	const onTouchMove = (e: React.TouchEvent) => {
-		setTouchEnd(e.targetTouches[0].clientX);
-	};
+  const goToToday = () => {
+    const today = startOfToday();
+    setCurrentMonth(new Date(today.getFullYear(), today.getMonth(), 1));
+    setSelectedDate(formatDateKey(today));
+  };
 
-	const onTouchEnd = () => {
-		if (!touchStart || !touchEnd) return;
-		
-		const distance = touchStart - touchEnd;
-		const isLeftSwipe = distance > minSwipeDistance;
-		const isRightSwipe = distance < -minSwipeDistance;
-		
-		if (isLeftSwipe) {
-			changeMonth(1); // Next month
-		}
-		if (isRightSwipe) {
-			changeMonth(-1); // Previous month
-		}
-	};
+  const onTouchStart = (e: React.TouchEvent) => {
+    setTouchEnd(null);
+    setTouchStart(e.targetTouches[0].clientX);
+  };
 
-	const selectedDayData = useMemo(() => {
-		if (!selectedDate) return null;
-		return timeline.find(day => day.date === selectedDate);
-	}, [selectedDate, timeline]);
+  const onTouchMove = (e: React.TouchEvent) => {
+    setTouchEnd(e.targetTouches[0].clientX);
+  };
 
-	return (
-		<div style={{ paddingBottom: '8rem', maxWidth: '800px', margin: '0 auto' }}>
-			<div className="p-4 sm:p-4 space-y-3 sm:space-y-4">
-				{/* Header */}
-				<div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-6">
-					<div className="flex items-center gap-3">
-						<Calendar className="w-5 h-5 text-blue-500" />
-						<h1 className="text-lg sm:text-xl">Timeline</h1>
-					</div>
-					<div className="flex items-center gap-3 sm:gap-4 text-xs sm:text-sm">
-						<div className="flex items-center gap-2 text-blue-600">
-							<Shirt className="w-3 h-3 sm:w-4 sm:h-4" />
-							<span className="font-medium">{insights.totalWearCount}</span>
-							<span className="text-gray-500 hidden sm:inline">worn</span>
-						</div>
-						<div className="flex items-center gap-2 text-emerald-600">
-							<Droplets className="w-3 h-3 sm:w-4 sm:h-4" />
-							<span className="font-medium">{insights.totalWashCount}</span>
-							<span className="text-gray-500 hidden sm:inline">washed</span>
-						</div>
-					</div>
-				</div>
+  const onTouchEnd = () => {
+    if (!touchStart || !touchEnd) return;
 
-				{/* Filters */}
-				{/* <div className="bg-white rounded-lg p-4 space-y-3 border-2 border-gray-200">
+    const distance = touchStart - touchEnd;
+    const isLeftSwipe = distance > minSwipeDistance;
+    const isRightSwipe = distance < -minSwipeDistance;
+
+    if (isLeftSwipe) {
+      changeMonth(1); // Next month
+    }
+    if (isRightSwipe) {
+      changeMonth(-1); // Previous month
+    }
+  };
+
+  const selectedDayData = useMemo(() => {
+    if (!selectedDate) return null;
+    return timeline.find(day => day.date === selectedDate);
+  }, [selectedDate, timeline]);
+
+  return (
+    <div style={{ paddingBottom: '8rem', maxWidth: '800px', margin: '0 auto' }}>
+      <div className="p-4 sm:p-4 space-y-3 sm:space-y-4">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-6">
+          {/* <div className="flex items-center gap-3">
+            <Calendar className="w-5 h-5 text-blue-500" />
+            <h1 className="text-lg sm:text-xl">Timeline</h1>
+          </div> */}
+          <div className="flex items-center gap-3 sm:gap-4 text-xs sm:text-sm">
+            <div className="flex items-center gap-2 text-blue-600">
+              <Shirt className="w-3 h-3 sm:w-4 sm:h-4" />
+              <span className="font-medium">{insights.totalWearCount}</span>
+              <span className="text-gray-500 hidden sm:inline">worn</span>
+            </div>
+            <div className="flex items-center gap-2 text-emerald-600">
+              <Droplets className="w-3 h-3 sm:w-4 sm:h-4" />
+              <span className="font-medium">{insights.totalWashCount}</span>
+              <span className="text-gray-500 hidden sm:inline">washed</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Filters */}
+        {/* <div className="bg-white rounded-lg p-4 space-y-3 border-2 border-gray-200">
 					<div className="flex items-center gap-2 mb-2">
 						<Filter className="w-4 h-4 text-gray-600" />
 						<span className="text-sm">Filters</span>
@@ -368,8 +374,8 @@ export function Timeline({ clothes, wearRecords, washRecords, onAddToDate }: Tim
 					</div>
 				</div> */}
 
-				{/* Overview */}
-				{/* <div className="bg-white p-2 space-y-4">
+        {/* Overview */}
+        {/* <div className="bg-white p-2 space-y-4">
 					<div className="flex flex-wrap items-center justify-between gap-3">
 						<div>
 							<p className="text-sm font-semibold text-gray-900">Activity overview</p>
@@ -410,326 +416,389 @@ export function Timeline({ clothes, wearRecords, washRecords, onAddToDate }: Tim
 					</div>
 				</div> */}
 
-				{/* Calendar View */}
-				<div className="space-y-4 mb-8">
-						{/* Month Navigation */}
-						<div className="bg-white rounded-lg p-3 sm:p-4">
-							<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-								<Button variant="outline" size="sm" onClick={() => changeMonth(-1)}>
-									←
-								</Button>
-								<h2 style={{ fontSize: 'clamp(14px, 4vw, 18px)', fontWeight: '600', textAlign: 'center' }}>
-									{currentMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-								</h2>
-								<Button variant="outline" size="sm" onClick={() => changeMonth(1)}>
-									→
-								</Button>
-							</div>
+        {/* Calendar View */}
+        <div className="space-y-4 mb-8">
+          {/* Quick Navigation - Year & Month Selection */}
+          <div className="">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <span className="text-sm text-gray-600 font-medium">Jump to:</span>
+              <Select
+                value={currentMonth.getMonth().toString()}
+                onValueChange={(value) => {
+                  const newMonth = new Date(currentMonth.getFullYear(), parseInt(value), 1);
+                  setCurrentMonth(newMonth);
+                  setSelectedDate(null);
+                }}
+              >
+                <SelectTrigger className="h-8 w-[140px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="0">January</SelectItem>
+                  <SelectItem value="1">February</SelectItem>
+                  <SelectItem value="2">March</SelectItem>
+                  <SelectItem value="3">April</SelectItem>
+                  <SelectItem value="4">May</SelectItem>
+                  <SelectItem value="5">June</SelectItem>
+                  <SelectItem value="6">July</SelectItem>
+                  <SelectItem value="7">August</SelectItem>
+                  <SelectItem value="8">September</SelectItem>
+                  <SelectItem value="9">October</SelectItem>
+                  <SelectItem value="10">November</SelectItem>
+                  <SelectItem value="11">December</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select
+                value={currentMonth.getFullYear().toString()}
+                onValueChange={(value) => {
+                  const newMonth = new Date(parseInt(value), currentMonth.getMonth(), 1);
+                  setCurrentMonth(newMonth);
+                  setSelectedDate(null);
+                }}
+              >
+                <SelectTrigger className="h-8 w-[100px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Array.from({ length: 11 }, (_, i) => {
+                    const year = new Date().getFullYear() - 5 + i;
+                    return (
+                      <SelectItem key={year} value={year.toString()}>
+                        {year}
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={goToToday}
+                className="h-8 text-xs"
+              >
+                Today
+              </Button>
+            </div>
+          </div>
 
-							{/* Calendar Grid */}
-							<div 
-								style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 'clamp(2px, 0.5vw, 4px)', width: '100%' }}
-								onTouchStart={onTouchStart}
-								onTouchMove={onTouchMove}
-								onTouchEnd={onTouchEnd}
-							>
-								{/* Day headers */}
-								{['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
-									<div 
-										key={day} 
-										style={{ 
-											textAlign: 'center', 
-											fontSize: 'clamp(10px, 2.5vw, 12px)', 
-											fontWeight: '600', 
-											color: '#6B7280',
-											padding: 'clamp(4px, 1.5vw, 8px) 0'
-										}}
-									>
-										{day}
-									</div>
-								))}
+          {/* Month Navigation */}
+          <div className="bg-white rounded-lg p-3 sm:p-4">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+              <Button variant="outline" size="sm" onClick={() => changeMonth(-1)}>
+                ←
+              </Button>
+              <h2 style={{ fontSize: 'clamp(14px, 4vw, 18px)', fontWeight: '600', textAlign: 'center' }}>
+                {currentMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+              </h2>
+              <Button variant="outline" size="sm" onClick={() => changeMonth(1)}>
+                →
+              </Button>
+            </div>
 
-								{/* Calendar days */}
-								{generateCalendarDays().map((day, index) => {
-									if (!day.isCurrentMonth) {
-										return <div key={`empty-${index}`} style={{ aspectRatio: '1', minHeight: 'clamp(50px, 12vw, 70px)' }} />;
-									}
+            {/* Calendar Grid */}
+            <div
+              style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 'clamp(2px, 0.5vw, 4px)', width: '100%' }}
+              onTouchStart={onTouchStart}
+              onTouchMove={onTouchMove}
+              onTouchEnd={onTouchEnd}
+            >
+              {/* Day headers */}
+              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
+                <div
+                  key={day}
+                  style={{
+                    textAlign: 'center',
+                    fontSize: 'clamp(10px, 2.5vw, 12px)',
+                    fontWeight: '600',
+                    color: '#6B7280',
+                    padding: 'clamp(4px, 1.5vw, 8px) 0'
+                  }}
+                >
+                  {day}
+                </div>
+              ))}
 
-									const activity = calendarData.get(day.dateKey);
-									const hasActivity = activity && (activity.wearCount > 0 || activity.washCount > 0);
-									const isSelected = selectedDate === day.dateKey;
-									const isToday = day.dateKey === formatDateKey(startOfToday());
+              {/* Calendar days */}
+              {generateCalendarDays().map((day, index) => {
+                if (!day.isCurrentMonth) {
+                  return <div key={`empty-${index}`} style={{ aspectRatio: '1', minHeight: 'clamp(50px, 12vw, 70px)' }} />;
+                }
 
-									const getButtonStyle = () => {
-										const baseStyle: React.CSSProperties = {
-											aspectRatio: '1',
-											minHeight: 'clamp(50px, 12vw, 70px)',
-											padding: 'clamp(3px, 1vw, 6px)',
-											borderRadius: 'clamp(4px, 1.5vw, 8px)',
-											border: '1px solid',
-											fontSize: 'clamp(12px, 3vw, 14px)',
-											cursor: 'pointer',
-											transition: 'all 0.2s',
-											width: '100%',
-											display: 'flex',
-											flexDirection: 'column',
-											alignItems: 'center',
-											justifyContent: 'flex-start',
-											gap: 'clamp(2px, 0.5vw, 4px)',
-										};
+                const activity = calendarData.get(day.dateKey);
+                const hasActivity = activity && (activity.wearCount > 0 || activity.washCount > 0);
+                const isSelected = selectedDate === day.dateKey;
+                const isToday = day.dateKey === formatDateKey(startOfToday());
 
-										if (isSelected) {
-											return {
-												...baseStyle,
-												backgroundColor: '#3B82F6',
-												color: 'white',
-												borderColor: '#3B82F6',
-											};
-										}
+                const getButtonStyle = () => {
+                  const baseStyle: React.CSSProperties = {
+                    aspectRatio: '1',
+                    minHeight: 'clamp(50px, 12vw, 70px)',
+                    padding: 'clamp(3px, 1vw, 6px)',
+                    borderRadius: 'clamp(4px, 1.5vw, 8px)',
+                    border: '1px solid',
+                    fontSize: 'clamp(12px, 3vw, 14px)',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                    width: '100%',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'flex-start',
+                    gap: 'clamp(2px, 0.5vw, 4px)',
+                  };
 
-										if (isToday) {
-											return {
-												...baseStyle,
-												backgroundColor: '#EFF6FF',
-												borderColor: '#BFDBFE',
-												color: '#1E3A8A',
-												fontWeight: '600',
-											};
-										}
+                  if (isSelected) {
+                    return {
+                      ...baseStyle,
+                      backgroundColor: '#3B82F6',
+                      color: 'white',
+                      borderColor: '#3B82F6',
+                    };
+                  }
 
-										if (hasActivity) {
-											return {
-												...baseStyle,
-												backgroundColor: '#F9FAFB',
-												borderColor: '#E5E7EB',
-											};
-										}
+                  if (isToday) {
+                    return {
+                      ...baseStyle,
+                      backgroundColor: '#EFF6FF',
+                      borderColor: '#BFDBFE',
+                      color: '#1E3A8A',
+                      fontWeight: '600',
+                    };
+                  }
 
-										return {
-											...baseStyle,
-											backgroundColor: 'white',
-											borderColor: '#F3F4F6',
-										};
-									};
+                  if (hasActivity) {
+                    return {
+                      ...baseStyle,
+                      backgroundColor: '#F9FAFB',
+                      borderColor: '#E5E7EB',
+                    };
+                  }
 
-									return (
-										<button
-											key={day.dateKey}
-											onClick={() => setSelectedDate(day.dateKey)}
-											style={getButtonStyle()}
-											onMouseEnter={(e) => {
-												if (!isSelected && e.currentTarget) {
-													e.currentTarget.style.backgroundColor = isToday ? '#DBEAFE' : '#F3F4F6';
-												}
-											}}
-											onMouseLeave={(e) => {
-												if (!isSelected && e.currentTarget) {
-													if (isToday) {
-														e.currentTarget.style.backgroundColor = '#EFF6FF';
-													} else if (hasActivity) {
-														e.currentTarget.style.backgroundColor = '#F9FAFB';
-													} else {
-														e.currentTarget.style.backgroundColor = 'white';
-													}
-												}
-											}}
-										>
-											<span style={{ color: isSelected ? 'white' : 'inherit', fontWeight: isToday ? '600' : 'normal' }}>
-												{day.date.getDate()}
-											</span>
-											{hasActivity && (
-												<div style={{ 
-													display: 'flex', 
-													flexDirection: 'column', 
-													gap: 'clamp(1px, 0.3vw, 2px)', 
-													fontSize: 'clamp(8px, 2vw, 10px)', 
-													lineHeight: '1',
-													width: '100%',
-													alignItems: 'center'
-												}}>
-													{activity.wearCount > 0 && (
-														<div style={{ 
-															display: 'flex', 
-															alignItems: 'center', 
-															gap: 'clamp(2px, 0.5vw, 3px)',
-															color: isSelected ? 'white' : '#3B82F6',
-															fontWeight: '500'
-														}}>
-															<span style={{ fontSize: 'clamp(8px, 2vw, 10px)' }}>👕</span>
-															<span>{activity.wearCount}</span>
-														</div>
-													)}
-													{activity.washCount > 0 && (
-														<div style={{ 
-															display: 'flex', 
-															alignItems: 'center', 
-															gap: 'clamp(2px, 0.5vw, 3px)',
-															color: isSelected ? 'white' : '#10B981',
-															fontWeight: '500'
-														}}>
-															<span style={{ fontSize: 'clamp(8px, 2vw, 10px)' }}>💧</span>
-															<span>{activity.washCount}</span>
-														</div>
-													)}
-												</div>
-											)}
-										</button>
-									);
-								})}
-							</div>
-						</div>
+                  return {
+                    ...baseStyle,
+                    backgroundColor: 'white',
+                    borderColor: '#F3F4F6',
+                  };
+                };
 
-						{/* Selected Day Details */}
-						{selectedDate && selectedDayData && (
-							<div className="bg-white rounded-xl p-4 space-y-4">
-								<div className="flex items-start justify-between gap-3">
-									<div>
-										<h3 className="text-sm font-semibold text-gray-900">{formatDate(selectedDate)}</h3>
-										<p className="text-xs text-gray-500">
-											{formatIsoDate(selectedDate, {
-												month: 'long',
-												day: 'numeric',
-												year: 'numeric',
-											}, 'en-US')}
-										</p>
-									</div>
-									<div className="flex gap-2">
-										<Button 
-											variant="outline" 
-											size="sm" 
-											onClick={() => setShowAddModal(true)}
-											className="text-black cursor-pointer"
-										>
-											<Plus className="w-4 h-4 mr-1" />
-											Add
-										</Button>
-										<Button variant="outline" className='cursor-pointer' size="sm" onClick={() => setSelectedDate(null)}>
-											Close
-										</Button>
-									</div>
-								</div>
+                return (
+                  <button
+                    key={day.dateKey}
+                    onClick={() => setSelectedDate(day.dateKey)}
+                    style={getButtonStyle()}
+                    onMouseEnter={(e) => {
+                      if (!isSelected && e.currentTarget) {
+                        e.currentTarget.style.backgroundColor = isToday ? '#DBEAFE' : '#F3F4F6';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!isSelected && e.currentTarget) {
+                        if (isToday) {
+                          e.currentTarget.style.backgroundColor = '#EFF6FF';
+                        } else if (hasActivity) {
+                          e.currentTarget.style.backgroundColor = '#F9FAFB';
+                        } else {
+                          e.currentTarget.style.backgroundColor = 'white';
+                        }
+                      }
+                    }}
+                  >
+                    <span style={{ color: isSelected ? 'white' : 'inherit', fontWeight: isToday ? '600' : 'normal' }}>
+                      {day.date.getDate()}
+                    </span>
+                    {hasActivity && (
+                      <div style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 'clamp(1px, 0.3vw, 2px)',
+                        fontSize: 'clamp(8px, 2vw, 10px)',
+                        lineHeight: '1',
+                        width: '100%',
+                        alignItems: 'center'
+                      }}>
+                        {activity.wearCount > 0 && (
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 'clamp(2px, 0.5vw, 3px)',
+                            color: isSelected ? 'white' : '#3B82F6',
+                            fontWeight: '500'
+                          }}>
+                            <span style={{ fontSize: 'clamp(8px, 2vw, 10px)' }}>👕</span>
+                            <span>{activity.wearCount}</span>
+                          </div>
+                        )}
+                        {activity.washCount > 0 && (
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 'clamp(2px, 0.5vw, 3px)',
+                            color: isSelected ? 'white' : '#10B981',
+                            fontWeight: '500'
+                          }}>
+                            <span style={{ fontSize: 'clamp(8px, 2vw, 10px)' }}>💧</span>
+                            <span>{activity.washCount}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
 
-								{selectedDayData.wear.length > 0 && (
-									<section className="space-y-2">
-										<div className="flex items-center gap-2 text-blue-600">
-											<Shirt className="h-4 w-4" />
-											<p className="text-xs font-semibold uppercase tracking-wide">Wore ({selectedDayData.wear.length})</p>
-										</div>
-										<div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))' }}>
-											{selectedDayData.wear.map(({ item, count }) => (
-												<div key={item.id} className="rounded-lg border border-blue-100 bg-blue-50/70 p-3">
-													<div className="flex items-center gap-3">
-														{item.image ? (
-															<ImageWithFallback
-																src={item.image}
-																alt={item.name}
-																className="h-12 w-12 rounded-md object-cover flex-shrink-0"
-															/>
-														) : (
-															<div
-																className="h-12 w-12 rounded-md flex items-center justify-center text-xs font-semibold flex-shrink-0"
-																style={{ backgroundColor: item.color || '#9CA3AF' }}
-															>
-																{item.name.split(' ').map(word => word[0]).join('').slice(0, 2).toUpperCase()}
-															</div>
-														)}
-														<div className="flex-1 min-w-0">
-															<p className="text-sm font-medium text-gray-900 truncate">{item.name}</p>
-															<p className="text-xs text-gray-500">{item.type} • {count}×</p>
-															{item.wearsSinceWash >= NEEDS_WASH_THRESHOLD && (
-																<span className="inline-block mt-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">
-																	Needs wash
-																</span>
-															)}
-														</div>
-													</div>
-												</div>
-											))}
-										</div>
-									</section>
-								)}
+          {/* Selected Day Details */}
+          {selectedDate && selectedDayData && (
+            <div className="bg-white rounded-xl p-4 space-y-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-900">{formatDate(selectedDate)}</h3>
+                  <p className="text-xs text-gray-500">
+                    {formatIsoDate(selectedDate, {
+                      month: 'long',
+                      day: 'numeric',
+                      year: 'numeric',
+                    }, 'en-US')}
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowAddModal(true)}
+                    className="text-black cursor-pointer"
+                  >
+                    <Plus className="w-4 h-4 mr-1" />
+                    Add
+                  </Button>
+                  <Button variant="outline" className='cursor-pointer' size="sm" onClick={() => setSelectedDate(null)}>
+                    Close
+                  </Button>
+                </div>
+              </div>
 
-								{selectedDayData.wash.length > 0 && (
-									<section className="space-y-2">
-										<div className="flex items-center gap-2 text-emerald-600">
-											<Droplets className="h-4 w-4" />
-											<p className="text-xs font-semibold uppercase tracking-wide">Washed ({selectedDayData.wash.length})</p>
-										</div>
-										<div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))' }}>
-											{selectedDayData.wash.map(item => (
-												<div key={item.id} className="rounded-lg border border-emerald-100 bg-emerald-50/70 p-3">
-													<div className="flex items-center gap-3">
-														{item.image ? (
-															<ImageWithFallback
-																src={item.image}
-																alt={item.name}
-																className="h-12 w-12 rounded-md object-cover flex-shrink-0"
-															/>
-														) : (
-															<div className="h-12 w-12 rounded-md flex items-center justify-center text-xs font-semibold flex-shrink-0">
-																{item.name.split(' ').map(word => word[0]).join('').slice(0, 2).toUpperCase()}
-															</div>
-														)}
-														<div className="flex-1 min-w-0">
-															<p className="text-sm font-medium text-gray-900 truncate">{item.name}</p>
-															<p className="text-xs text-gray-500">{item.type}</p>
-														</div>
-													</div>
-												</div>
-											))}
-										</div>
-									</section>
-								)}
-							</div>
-						)}
+              {selectedDayData.wear.length > 0 && (
+                <section className="space-y-2">
+                  <div className="flex items-center gap-2 text-blue-600">
+                    <Shirt className="h-4 w-4" />
+                    <p className="text-xs font-semibold uppercase tracking-wide">Wore ({selectedDayData.wear.length})</p>
+                  </div>
+                  <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))' }}>
+                    {selectedDayData.wear.map(({ item, count }) => (
+                      <div key={item.id} className="rounded-lg border border-blue-100 bg-blue-50/70 p-3">
+                        <div className="flex items-center gap-3">
+                          {item.image ? (
+                            <ImageWithFallback
+                              src={item.image}
+                              alt={item.name}
+                              className="h-12 w-12 rounded-md object-cover flex-shrink-0"
+                            />
+                          ) : (
+                            <div
+                              className="h-12 w-12 rounded-md flex items-center justify-center text-xs font-semibold flex-shrink-0"
+                              style={{ backgroundColor: item.color || '#9CA3AF' }}
+                            >
+                              {item.name.split(' ').map(word => word[0]).join('').slice(0, 2).toUpperCase()}
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-gray-900 truncate">{item.name}</p>
+                            <p className="text-xs text-gray-500">{item.type} • {count}×</p>
+                            {item.wearsSinceWash >= NEEDS_WASH_THRESHOLD && (
+                              <span className="inline-block mt-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+                                Needs wash
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
 
-						{selectedDate && !selectedDayData && (
-							<div className="bg-white rounded-lg">
-								<div className="flex items-start justify-between gap-3 p-4 border-b border-gray-200">
-									<div>
-										<h3 className="text-sm font-semibold text-gray-900">{formatDate(selectedDate)}</h3>
-										<p className="text-xs text-gray-500">
-											{formatIsoDate(selectedDate, {
-												month: 'long',
-												day: 'numeric',
-												year: 'numeric',
-											}, 'en-US')}
-										</p>
-									</div>
-									<div className="flex gap-2">
-										<Button 
-											variant="outline"
-											onClick={() => setShowAddModal(true)}
-											className="text-black cursor-pointer"
-											size="sm"
-										>
-											<Plus className="w-4 h-4 mr-1" />
-											Add
-										</Button>
-										<Button variant="outline" className='cursor-pointer' size="sm" onClick={() => setSelectedDate(null)}>
-											Close
-										</Button>
-									</div>
-								</div>
-								<div className="p-4 text-center">
-									<Calendar className="w-12 h-12 mx-auto mb-3 text-gray-400" />
-									<p className="text-base font-medium text-gray-700 mb-2">No activity on this day</p>
-									<p className="text-sm text-gray-500">Click "Add" above to record clothes worn on this date</p>
-								</div>
-							</div>
-						)}
-				</div>
-			</div>
+              {selectedDayData.wash.length > 0 && (
+                <section className="space-y-2">
+                  <div className="flex items-center gap-2 text-emerald-600">
+                    <Droplets className="h-4 w-4" />
+                    <p className="text-xs font-semibold uppercase tracking-wide">Washed ({selectedDayData.wash.length})</p>
+                  </div>
+                  <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))' }}>
+                    {selectedDayData.wash.map(item => (
+                      <div key={item.id} className="rounded-lg border border-emerald-100 bg-emerald-50/70 p-3">
+                        <div className="flex items-center gap-3">
+                          {item.image ? (
+                            <ImageWithFallback
+                              src={item.image}
+                              alt={item.name}
+                              className="h-12 w-12 rounded-md object-cover flex-shrink-0"
+                            />
+                          ) : (
+                            <div className="h-12 w-12 rounded-md flex items-center justify-center text-xs font-semibold flex-shrink-0">
+                              {item.name.split(' ').map(word => word[0]).join('').slice(0, 2).toUpperCase()}
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-gray-900 truncate">{item.name}</p>
+                            <p className="text-xs text-gray-500">{item.type}</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+            </div>
+          )}
 
-			{/* Add To Date Modal */}
-			{showAddModal && selectedDate && (
-				<AddToDateModal
-					clothes={clothes}
-					date={selectedDate}
-					onAdd={onAddToDate}
-					onClose={() => setShowAddModal(false)}
-				/>
-			)}
-		</div>
-	);
+          {selectedDate && !selectedDayData && (
+            <div className="bg-white rounded-lg">
+              <div className="flex items-start justify-between gap-3 p-4 border-b border-gray-200">
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-900">{formatDate(selectedDate)}</h3>
+                  <p className="text-xs text-gray-500">
+                    {formatIsoDate(selectedDate, {
+                      month: 'long',
+                      day: 'numeric',
+                      year: 'numeric',
+                    }, 'en-US')}
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowAddModal(true)}
+                    className="text-black cursor-pointer"
+                    size="sm"
+                  >
+                    <Plus className="w-4 h-4 mr-1" />
+                    Add
+                  </Button>
+                  <Button variant="outline" className='cursor-pointer' size="sm" onClick={() => setSelectedDate(null)}>
+                    Close
+                  </Button>
+                </div>
+              </div>
+              <div className="p-4 text-center">
+                <Calendar className="w-12 h-12 mx-auto mb-3 text-gray-400" />
+                <p className="text-base font-medium text-gray-700 mb-2">No activity on this day</p>
+                <p className="text-sm text-gray-500">Click "Add" above to record clothes worn on this date</p>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Add To Date Modal */}
+      {showAddModal && selectedDate && (
+        <AddToDateModal
+          clothes={clothes}
+          date={selectedDate}
+          onAdd={onAddToDate}
+          onClose={() => setShowAddModal(false)}
+        />
+      )}
+    </div>
+  );
 }

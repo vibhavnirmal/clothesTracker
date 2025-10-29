@@ -163,13 +163,12 @@ export function Analysis({ clothes, wearRecords, washRecords }: AnalysisProps) {
 	return (
 		<div className="" style={{ paddingBottom: '5rem', maxWidth: '800px', margin: '0 auto' }}>
 			<div className="p-4 space-y-6">
-				<header className="flex items-center gap-3 mb-6">
+				{/* <header className="flex items-center gap-3 mb-6">
 					<h1 className="flex items-center gap-2">
 						<Activity className="w-5 h-5 text-blue-500" />
 						Analysis
-						{/* <p className="text-xs text-gray-500">Lifetime wear and wash insights gathered from your activity.</p> */}
 					</h1>
-				</header>
+				</header> */}
 
 				<section className="grid grid-cols-1 gap-3 mb-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
 					<div className="flex justify-between rounded-xl border border-blue-100 bg-blue-50/70 p-4">

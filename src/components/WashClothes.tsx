@@ -133,15 +133,12 @@ export function WashClothes({ clothes, onMarkWashed }: WashClothesProps) {
   return (
     <div className="p-4"  style={{ paddingBottom: '5rem', maxWidth: '800px', margin: '0 auto' }}>
       {/* Header */}
-      <div className="flex items-center gap-3 mb-6">
-        {/* <Button variant="ghost" size="sm" onClick={onBack}>
-          <ArrowLeft className="w-4 h-4" />
-        </Button> */}
+      {/* <div className="flex items-center gap-3 mb-6">
         <h1 className="flex items-center gap-2">
           <Droplets className="w-5 h-5 text-blue-500" />
           Wash Clothes
         </h1>
-      </div>
+      </div> */}
 
       {/* Quick select options */}
       <div className="flex gap-2 mb-4 overflow-x-auto">
@@ -166,14 +163,14 @@ export function WashClothes({ clothes, onMarkWashed }: WashClothesProps) {
         {sortedClothes.map(item => (
           <div
             key={item.id}
-            className={`bg-white rounded-2xl shadow-md p-4 relative transition-all cursor-pointer ${
+            className={`rounded-sm bg-white p-4 relative transition-all cursor-pointer ${
               selectedForWashing.has(item.id) ? 'ring-2 ring-blue-500' : ''
             }`}
             onClick={() => toggleWashSelection(item.id)}
           >
             {/* Wear count badge */}
             {item.wearsSinceWash >= 1 && (
-              <div className={`absolute -top-2 -right-2 ${getBadgeColor(item.wearsSinceWash)} text-white rounded-full w-8 h-8 flex items-center justify-center text-sm font-bold shadow-lg`}>
+              <div className={`absolute top-0 right-0 ${getBadgeColor(item.wearsSinceWash)} text-white rounded-full w-8 h-8 flex items-center justify-center text-sm font-bold shadow-lg`}>
                 {item.wearsSinceWash}
               </div>
             )}
@@ -192,7 +189,7 @@ export function WashClothes({ clothes, onMarkWashed }: WashClothesProps) {
                 <ImageWithFallback
                   src={item.image}
                   alt={item.name}
-                  className="w-full h-28 object-cover rounded-lg"
+                  className="w-full h-28 object-cover rounded-sm"
                 />
               ) : (
                 <div 

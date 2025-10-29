@@ -1,9 +1,10 @@
 import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Calendar, Home, PieChart, Settings as SettingsIcon, Waves, Check, Search, X, Filter, ArrowUpDown, Plus } from 'lucide-react';
+import { Calendar, Home, PieChart, Settings as SettingsIcon, Waves, Check, Search, X, Filter, ArrowUpDown, Plus, Camera, Image } from 'lucide-react';
 import { ClothesCard } from './components/ClothesCard';
 import { AddClothesModal } from './components/AddClothesModal';
 import { AddClothesPage } from './components/AddClothesPage';
 import { WashClothes } from './components/WashClothes';
+import { BulkPhotoUpload } from './components/BulkPhotoUpload';
 import { Button } from './components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './components/ui/select';
 import {
@@ -68,6 +69,7 @@ function detectStandalone(): boolean {
 }
 
 type TabType = 'home' | 'add' | 'wash' | 'timeline' | 'analysis' | 'settings';
+type AddSubTab = 'item' | 'photos';
 
 const Timeline = lazy(async () => {
 	const module = await import('./components/Timeline');
@@ -81,16 +83,17 @@ const Analysis = lazy(async () => {
 
 const SettingsPage = lazy(async () => import('./components/Settings'));
 
-const NAV_ITEMS: Array<{ id: TabType; icon: typeof Home; label: string }> = [
+const NAV_ITEMS: Array<{ id: Exclude<TabType, 'settings'>; icon: typeof Home; label: string }> = [
 	{ id: 'home', icon: Home, label: 'Home' },
+	{ id: 'add', icon: Plus, label: 'Add' },
 	{ id: 'wash', icon: Waves, label: 'Wash' },
 	{ id: 'timeline', icon: Calendar, label: 'Timeline' },
 	{ id: 'analysis', icon: PieChart, label: 'Analysis' },
-	{ id: 'settings', icon: SettingsIcon, label: 'Settings' },
 ];
 
 export default function App() {
 	const [activeTab, setActiveTab] = useState<TabType>('home');
+	const [addSubTab, setAddSubTab] = useState<AddSubTab>('item');
 	const [clothes, setClothes] = useState<ClothesItem[]>([]);
 	const [wearRecords, setWearRecords] = useState<WearRecord[]>([]);
 	const [washRecords, setWashRecords] = useState<WashRecord[]>([]);
@@ -644,8 +647,9 @@ export default function App() {
 
 	const resetActionError = useCallback(() => setActionError(null), []);
 
-	const openAddPage = useCallback((redirectTab: TabType) => {
+	const openAddPage = useCallback((redirectTab: TabType, subTab: AddSubTab = 'item') => {
 		setPostAddRedirectTab(redirectTab);
+		setAddSubTab(subTab);
 		setActiveTab('add');
 		resetActionError();
 	}, [resetActionError]);
@@ -832,6 +836,46 @@ export default function App() {
 			toast.success(`Added ${clothesIds.length} item${clothesIds.length === 1 ? '' : 's'} to ${date}`);
 		} catch (err) {
 			const message = err instanceof Error ? err.message : 'Failed to add clothes to date';
+			setActionError(message);
+			toast.error(message);
+			throw err;
+		}
+	}, [resetActionError]);
+
+	const handleBulkPhotoSubmit = useCallback(async (photos: Array<{ date: string | null; selectedClothesIds: string[] }>) => {
+		resetActionError();
+		let successCount = 0;
+		
+		try {
+			// Group photos by date
+			const photosByDate = new Map<string, string[]>();
+			
+			photos.forEach(photo => {
+				if (!photo.date) return;
+				
+				const existing = photosByDate.get(photo.date);
+				if (existing) {
+					existing.push(...photo.selectedClothesIds);
+				} else {
+					photosByDate.set(photo.date, [...photo.selectedClothesIds]);
+				}
+			});
+
+			// Record wear for each date
+			for (const [date, clothesIds] of photosByDate.entries()) {
+				// Remove duplicates
+				const uniqueClothesIds = Array.from(new Set(clothesIds));
+				
+				const { clothes: updatedClothes, wearRecords: updatedWearRecords } = await recordWear(uniqueClothesIds, date);
+				setClothes(updatedClothes);
+				setWearRecords(updatedWearRecords);
+				successCount++;
+			}
+
+			toast.success(`Successfully recorded ${successCount} outfit${successCount === 1 ? '' : 's'} from photos!`);
+			setActiveTab('timeline');
+		} catch (err) {
+			const message = err instanceof Error ? err.message : 'Failed to submit photos';
 			setActionError(message);
 			toast.error(message);
 			throw err;
@@ -1071,30 +1115,72 @@ export default function App() {
 
 			case 'add':
 				return (
-				<AddClothesPage
-					typeOptions={clothingTypes}
-					materialOptions={materialTypes}
-					onSubmit={handleAddClothes}
-					onCancel={() => {
-					if (postAddRedirectTab === 'settings') {
-						setSettingsSection('overview');
-					}
-					setActiveTab(postAddRedirectTab);
-					resetActionError();
-					}}
-					onManageTypes={() => {
-					setSettingsSection('clothingTypes');
-					setActiveTab('settings');
-					resetActionError();
-					}}
-					onSubmitSuccess={() => {
-					if (postAddRedirectTab === 'settings') {
-						setSettingsSection('overview');
-					}
-					setActiveTab(postAddRedirectTab);
-					resetActionError();
-					}}
-				/>
+					<div style={{ paddingBottom: '5rem', maxWidth: '800px', margin: '0 auto' }}>
+						{/* Sub-tab switcher */}
+						<div className="bg-white sticky top-0 z-10">
+							<div className="flex" style={{ padding: "10px"}}>
+								<button
+									onClick={() => setAddSubTab('item')}
+									className={`flex-1 py-2 text-sm font-medium border-b-2 transition-colors ${
+										addSubTab === 'item'
+											? ''
+											: 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+									}`}
+									// use style instead of class to avoid tailwind conflict oh addSubTab
+									style={{ backgroundColor: addSubTab === 'item' ? '#f2f2f2' : 'white', borderRadius: addSubTab === 'item' ? '0.25rem' : '0' }}
+								>
+									<Plus className="w-4 h-4 inline-block mr-2" />
+									Add Item
+								</button>
+								<button
+									onClick={() => setAddSubTab('photos')}
+									className={`flex-1 py-2 text-sm font-medium border-b-2 transition-colors ${
+										addSubTab === 'photos'
+											? ''
+											: 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+									}`}
+									// use style instead of class to avoid tailwind conflict oh addSubTab
+									style={{ backgroundColor: addSubTab === 'photos' ? '#f2f2f2' : 'white', borderRadius: addSubTab === 'photos' ? '0.25rem' : '0' }}
+								>
+									<Image className="w-4 h-4 inline-block mr-2" />
+									Add Photos
+								</button>
+							</div>
+						</div>
+
+						{/* Content based on selected sub-tab */}
+						{addSubTab === 'item' ? (
+							<AddClothesPage
+								typeOptions={clothingTypes}
+								materialOptions={materialTypes}
+								onSubmit={handleAddClothes}
+								onCancel={() => {
+									if (postAddRedirectTab === 'settings') {
+										setSettingsSection('overview');
+									}
+									setActiveTab(postAddRedirectTab);
+									resetActionError();
+								}}
+								onManageTypes={() => {
+									setSettingsSection('clothingTypes');
+									setActiveTab('settings');
+									resetActionError();
+								}}
+								onSubmitSuccess={() => {
+									if (postAddRedirectTab === 'settings') {
+										setSettingsSection('overview');
+									}
+									setActiveTab(postAddRedirectTab);
+									resetActionError();
+								}}
+							/>
+						) : (
+							<BulkPhotoUpload
+								clothes={clothes}
+								onSubmit={handleBulkPhotoSubmit}
+							/>
+						)}
+					</div>
 				);
 
 			case 'wash':
@@ -1140,6 +1226,23 @@ export default function App() {
 					</Suspense>
 				);
 
+			case 'analysis':
+				return (
+					<Suspense
+						fallback={(
+							<div className="flex h-[calc(100vh-6rem)] items-center justify-center text-gray-600">
+								Crunching wardrobe stats...
+							</div>
+						)}
+					>
+						<Analysis
+							clothes={clothes}
+							wearRecords={wearRecords}
+							washRecords={washRecords}
+						/>
+					</Suspense>
+				);
+
 			case 'settings':
 				return (
 					<Suspense
@@ -1163,7 +1266,7 @@ export default function App() {
 							activeSection={settingsSection}
 							onSectionChange={setSettingsSection}
 							typeUsage={clothingTypeUsage}
-							onCreateClothing={() => openAddPage('settings')}
+							onCreateClothing={() => openAddPage('settings', 'item')}
 							onPurgeDatabase={handlePurgeDatabase}
 						/>
 					</Suspense>
@@ -1256,6 +1359,49 @@ export default function App() {
 	return (
 		<div className="min-h-screen pb-28">
 			<Toaster />
+			
+			{/* Top Header with Settings */}
+				<div className="sticky top-0 z-20 bg-white">
+					<div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between" style={{ backgroundColor: '#f2f2f2'}}>
+						<h1 className="text-lg font-semibold text-gray-900">
+							{activeTab === 'home' && 'My Wardrobe'}
+							{activeTab === 'add' && 'Add Clothes'}
+							{activeTab === 'wash' && 'Wash Clothes'}
+							{activeTab === 'timeline' && 'Timeline'}
+							{activeTab === 'analysis' && 'Analysis'}
+							{activeTab === 'settings' && 'Settings'}
+						</h1>
+						{activeTab !== 'settings' && (
+						<button
+							onClick={() => {
+								setSettingsSection('overview');
+								setActiveTab('settings');
+								resetActionError();
+							}}
+							className="p-2 rounded-lg text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition-colors"
+							aria-label="Settings"
+						>
+							<SettingsIcon className="w-5 h-5" />
+						</button>
+						)}
+
+						{/* if settings page, show homepage button */}
+						{activeTab === 'settings' && (
+							<button
+								onClick={() => {
+									setSettingsSection('overview');
+									setActiveTab('home');
+									resetActionError();
+								}}
+								className="p-2 rounded-lg text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition-colors"
+								aria-label="Home"
+							>
+								<Home className="w-5 h-5" />
+							</button>
+							)}
+					</div>
+				</div>
+			
 			{renderContent()}
 
 			<AddClothesModal
@@ -1284,42 +1430,67 @@ export default function App() {
 			/>
 
 			<nav className="fixed inset-x-0 w-full bottom-0 z-30 bg-white border-t border-gray-200 shadow-lg">
-				<NavigationMenu className="w-full">
-					<NavigationMenuList className="w-full px-2 py-2">
-						{NAV_ITEMS.map(({ id, icon: Icon, label }) => {
-							const isActive = activeTab === id;
+				<div 
+					style={{
+						display: 'grid',
+						gridTemplateColumns: 'repeat(5, 1fr)',
+						gap: '4px',
+						padding: '8px',
+						maxWidth: '1280px',
+						margin: '0 auto'
+					}}
+				>
+					{NAV_ITEMS.map(({ id, icon: Icon, label }) => {
+						const isActive = activeTab === id;
 
-							return (
-								<NavigationMenuItem key={id} className="flex-1">
-									<NavigationMenuLink asChild>
-										<button
-											type="button"
-											onClick={() => {
-												if (id === 'settings') {
-													setSettingsSection('overview');
-												}
-												if (id !== 'add') {
-													setPostAddRedirectTab('home');
-												}
-												setActiveTab(id);
-												resetActionError();
-											}}
-											aria-label={label}
-											aria-current={isActive ? 'page' : undefined}
-											className={`flex w-full flex-col items-center gap-1 rounded-lg px-4 py-2 transition-colors ${isActive
-													? 'bg-blue-50 text-blue-600'
-													: 'text-gray-600 hover:bg-gray-50 hover:text-gray-800'
-												}`}
-										>
-											<Icon className="h-6 w-6" />
-											<span className="text-xs">{label}</span>
-										</button>
-									</NavigationMenuLink>
-								</NavigationMenuItem>
-							);
-						})}
-					</NavigationMenuList>
-				</NavigationMenu>
+						return (
+							<button
+								key={id}
+								type="button"
+								onClick={() => {
+									if (id === 'add') {
+										setAddSubTab('item');
+									}
+									setActiveTab(id);
+									resetActionError();
+								}}
+								aria-label={label}
+								aria-current={isActive ? 'page' : undefined}
+								style={{
+									display: 'flex',
+									flexDirection: 'column',
+									alignItems: 'center',
+									justifyContent: 'center',
+									gap: '6px',
+									borderRadius: '8px',
+									padding: '10px 8px',
+									transition: 'all 0.2s',
+									backgroundColor: isActive ? '#EFF6FF' : 'transparent',
+									color: isActive ? '#2563EB' : '#4B5563',
+									border: 'none',
+									cursor: 'pointer',
+								}}
+								onMouseEnter={(e) => {
+									if (!isActive) {
+										e.currentTarget.style.backgroundColor = '#F9FAFB';
+										e.currentTarget.style.color = '#1F2937';
+									}
+								}}
+								onMouseLeave={(e) => {
+									if (!isActive) {
+										e.currentTarget.style.backgroundColor = 'transparent';
+										e.currentTarget.style.color = '#4B5563';
+									}
+								}}
+							>
+								<Icon style={{ width: '24px', height: '24px', flexShrink: 0 }} />
+								<span style={{ fontSize: '12px', fontWeight: '500', lineHeight: '1.25', textAlign: 'center' }}>
+									{label}
+								</span>
+							</button>
+						);
+					})}
+				</div>
 			</nav>
 		</div>
 	);

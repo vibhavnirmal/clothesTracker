@@ -68,7 +68,7 @@ export function Settings({
   return (
     <div className="" style={{ paddingBottom: '5rem', maxWidth: '800px', margin: '0 auto' }}>
       <div className="p-4 space-y-6">
-        <header className="flex items-center justify-between gap-3">
+        {/* <header className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3 mb-6">
             <div>
               <h1 className="flex items-center gap-2">
@@ -77,9 +77,9 @@ export function Settings({
               </h1>
             </div>
           </div>
-        </header>
+        </header> */}
 
-        <section className="rounded-xl border border-blue-100 bg-white p-4 mb-4">
+        {/* <section className="rounded-xl border border-blue-100 bg-white p-4 mb-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-sm font-semibold text-gray-900">Add new clothing</h2>
@@ -92,7 +92,7 @@ export function Settings({
               Add clothing
             </Button>
           </div>
-        </section>
+        </section> */}
 
         <section className="rounded-xl border border-gray-100 bg-white p-4 mb-4">
           <div className="flex flex-col gap-2">

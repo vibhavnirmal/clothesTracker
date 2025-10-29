@@ -72,7 +72,6 @@ export function ClothesCard({
 		<div
 			className={`bg-white relative transition-all cursor-pointer`}
 			style={{
-				boxShadow: selected ? '0 0 8px 2px #c0c0c09d' : '0 0 0px rgba(0, 0, 0, 0.79)',
 				borderRadius: selected ? '0.25rem' : '0',
 				backgroundColor: selected ? '#f8f8f8ff' : 'white',
 			}}
