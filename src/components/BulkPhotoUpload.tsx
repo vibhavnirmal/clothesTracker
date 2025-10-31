@@ -1,9 +1,12 @@
-import React, { useCallback, useState, useRef } from 'react';
+import React, { useCallback, useState, useRef, useEffect } from 'react';
 import { Upload, Image as ImageIcon, X, Calendar, AlertCircle } from 'lucide-react';
 import { Button } from './ui/button';
 import { PhotoReviewModal } from './PhotoReviewModal';
 import type { ClothesItem } from '../types';
+import type { AddClothesPayload } from '../types';
+import { AddClothesModal } from './AddClothesModal';
 import exifr from 'exifr';
+import { compressImage } from '../lib/imageCompression';
 
 interface PhotoData {
 	file: File;
@@ -15,14 +18,23 @@ interface PhotoData {
 interface BulkPhotoUploadProps {
 	clothes: ClothesItem[];
 	onSubmit: (photos: PhotoData[]) => Promise<void>;
+	onAddClothes: (payload: AddClothesPayload) => Promise<ClothesItem>;
+	typeOptions: string[];
+	materialOptions: string[];
+	madeInOptions?: string[];
+	onManageTypes?: () => void;
 }
 
-export function BulkPhotoUpload({ clothes, onSubmit }: BulkPhotoUploadProps) {
+export function BulkPhotoUpload({ clothes, onSubmit, onAddClothes, typeOptions, materialOptions, madeInOptions, onManageTypes }: BulkPhotoUploadProps) {
 	const [photos, setPhotos] = useState<PhotoData[]>([]);
 	const [isProcessing, setIsProcessing] = useState(false);
 	const [showReview, setShowReview] = useState(false);
 	const [currentReviewIndex, setCurrentReviewIndex] = useState(0);
 	const [isSubmitting, setIsSubmitting] = useState(false);
+	const [showAddClothesModal, setShowAddClothesModal] = useState(false);
+	const [addClothesPhotoIndex, setAddClothesPhotoIndex] = useState<number | null>(null);
+	const [newClothesInitialValues, setNewClothesInitialValues] = useState<Partial<AddClothesPayload> | undefined>();
+	const [isPreparingNewClothes, setIsPreparingNewClothes] = useState(false);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 
 	const formatDateToISO = (date: Date): string => {
@@ -152,6 +164,73 @@ export function BulkPhotoUpload({ clothes, onSubmit }: BulkPhotoUploadProps) {
 			setIsSubmitting(false);
 		}
 	}, [photos, onSubmit]);
+
+	const handleOpenAddClothes = useCallback(async (photoIndex: number) => {
+		setAddClothesPhotoIndex(photoIndex);
+		setNewClothesInitialValues(undefined);
+		setIsPreparingNewClothes(true);
+		try {
+			const targetPhoto = photos[photoIndex];
+			if (targetPhoto) {
+				const compressed = await compressImage(targetPhoto.file, {
+					targetKilobytes: 50,
+					minQuality: 0.55,
+				});
+				setNewClothesInitialValues({ image: compressed.dataUrl });
+			}
+		} catch (error) {
+			console.error('Failed to prepare photo for new clothing item', error);
+			setNewClothesInitialValues(undefined);
+		} finally {
+			setIsPreparingNewClothes(false);
+			if (showReview) {
+				setShowAddClothesModal(true);
+			}
+		}
+	}, [photos, showReview]);
+
+	const handleCloseAddClothes = useCallback(() => {
+		setShowAddClothesModal(false);
+		setAddClothesPhotoIndex(null);
+		setNewClothesInitialValues(undefined);
+		setIsPreparingNewClothes(false);
+	}, []);
+
+	const handleAddClothesSubmit = useCallback(async (payload: AddClothesPayload) => {
+		if (addClothesPhotoIndex === null) {
+			throw new Error('No photo selected for new clothing');
+		}
+
+		const finalPayload: AddClothesPayload = {
+			...payload,
+			...(payload.image === undefined && newClothesInitialValues?.image
+				? { image: newClothesInitialValues.image }
+				: {}),
+		};
+
+		const created = await onAddClothes(finalPayload);
+		setPhotos(prev => {
+			const updated = [...prev];
+			const target = updated[addClothesPhotoIndex];
+			if (target) {
+				const alreadySelected = target.selectedClothesIds.includes(created.id);
+				updated[addClothesPhotoIndex] = {
+					...target,
+					selectedClothesIds: alreadySelected
+						? target.selectedClothesIds
+						: [...target.selectedClothesIds, created.id],
+				};
+			}
+			return updated;
+		});
+		handleCloseAddClothes();
+	}, [addClothesPhotoIndex, onAddClothes, handleCloseAddClothes, newClothesInitialValues]);
+
+	useEffect(() => {
+		if (!showReview) {
+			handleCloseAddClothes();
+		}
+	}, [showReview, handleCloseAddClothes]);
 
 	const handleDrop = useCallback((event: React.DragEvent<HTMLDivElement>) => {
 		event.preventDefault();
@@ -314,8 +393,23 @@ export function BulkPhotoUpload({ clothes, onSubmit }: BulkPhotoUploadProps) {
 					onUpdatePhoto={handleUpdatePhoto}
 					onClose={() => setShowReview(false)}
 					onSubmitAll={handleSubmitAll}
+					onAddNewClothes={handleOpenAddClothes}
+					disableNavigation={showAddClothesModal || isPreparingNewClothes}
 				/>
 			)}
+
+			<AddClothesModal
+				isOpen={showAddClothesModal}
+				onClose={handleCloseAddClothes}
+				onSubmit={handleAddClothesSubmit}
+				title="Add New Clothing"
+				submitLabel="Add Clothing"
+				typeOptions={typeOptions}
+				materialOptions={materialOptions}
+				madeInOptions={madeInOptions}
+				onManageTypes={onManageTypes}
+				initialValues={newClothesInitialValues}
+			/>
 		</div>
 	);
 }

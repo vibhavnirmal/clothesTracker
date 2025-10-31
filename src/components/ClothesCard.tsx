@@ -144,6 +144,12 @@ export function ClothesCard({
 									<span className="text-xs text-gray-600 font-medium">{item.size}</span>
 								</>
 							)}
+							{item.madeIn && (
+								<>
+									<span className="text-xs text-gray-400">•</span>
+									<span className="text-xs text-gray-500 italic">{item.madeIn}</span>
+								</>
+							)}
 						</div>
 					</div>
 				</div>

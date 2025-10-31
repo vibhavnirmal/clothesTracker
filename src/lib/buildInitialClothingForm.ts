@@ -9,5 +9,6 @@ export function buildInitialClothingForm(values?: Partial<AddClothesPayload>): A
     image: values?.image ?? '',
     size: values?.size,
     materials: values?.materials,
+    madeIn: values?.madeIn,
   };
 }

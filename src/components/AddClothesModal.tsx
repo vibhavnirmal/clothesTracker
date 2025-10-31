@@ -12,6 +12,7 @@ interface AddClothesModalProps {
   initialValues?: Partial<AddClothesPayload>;
   typeOptions: string[];
   materialOptions: string[];
+  madeInOptions?: string[];
   onManageTypes?: () => void;
 }
 
@@ -24,6 +25,7 @@ export function AddClothesModal({
   initialValues,
   typeOptions,
   materialOptions,
+  madeInOptions,
   onManageTypes,
 }: AddClothesModalProps) {
   if (!isOpen) return null;
@@ -42,6 +44,7 @@ export function AddClothesModal({
             initialValues={initialValues}
             typeOptions={typeOptions}
             materialOptions={materialOptions}
+            madeInOptions={madeInOptions}
             onSubmit={onSubmit}
             submitLabel={submitLabel}
             onCancel={onClose}

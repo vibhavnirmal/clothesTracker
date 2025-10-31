@@ -1,12 +1,13 @@
-import React, { useMemo, useState } from 'react';
-import { Calendar, Shirt, Droplets, Filter, Plus } from 'lucide-react';
+import React, { useCallback, useMemo, useState } from 'react';
+import { Calendar, Shirt, Droplets, Filter, Plus, Upload } from 'lucide-react';
 import { Button } from './ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import type { ClothesItem, WearRecord, WashRecord } from '../types';
+import type { AddClothesPayload, ClothesItem, WearRecord, WashRecord } from '../types';
 import { getColorName } from '../lib/colors';
 import { addDays, compareIsoDatesDesc, formatIsoDate, parseIsoDateToLocal, startOfToday } from '../lib/date';
 import { ImageWithFallback } from './ImageWithFallback';
 import { AddToDateModal } from './AddToDateModal';
+import { BulkPhotoUpload } from './BulkPhotoUpload';
 
 const NEEDS_WASH_THRESHOLD = 4;
 
@@ -15,6 +16,12 @@ interface TimelineProps {
   wearRecords: WearRecord[];
   washRecords: WashRecord[];
   onAddToDate: (clothesIds: string[], date: string) => Promise<void>;
+  onBulkPhotoSubmit: (photos: Array<{ date: string | null; selectedClothesIds: string[] }>) => Promise<void>;
+  onCreateClothes: (payload: AddClothesPayload) => Promise<ClothesItem>;
+  typeOptions: string[];
+  materialOptions: string[];
+  madeInOptions: string[];
+  onManageTypes?: () => void;
 }
 
 interface WearSummary {
@@ -29,7 +36,7 @@ interface TimelineDay {
   wash: ClothesItem[];
 }
 
-export function Timeline({ clothes, wearRecords, washRecords, onAddToDate }: TimelineProps) {
+export function Timeline({ clothes, wearRecords, washRecords, onAddToDate, onBulkPhotoSubmit, onCreateClothes, typeOptions, materialOptions, madeInOptions, onManageTypes }: TimelineProps) {
   const [filterType, setFilterType] = useState<string>('all');
   const [filterColor, setFilterColor] = useState<string>('all');
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
@@ -37,6 +44,7 @@ export function Timeline({ clothes, wearRecords, washRecords, onAddToDate }: Tim
   const [touchStart, setTouchStart] = useState<number | null>(null);
   const [touchEnd, setTouchEnd] = useState<number | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showBulkUpload, setShowBulkUpload] = useState(false);
 
   // Minimum swipe distance (in px) to trigger month change
   const minSwipeDistance = 50;
@@ -298,11 +306,45 @@ export function Timeline({ clothes, wearRecords, washRecords, onAddToDate }: Tim
     return timeline.find(day => day.date === selectedDate);
   }, [selectedDate, timeline]);
 
+  const handleBulkUploadSubmit = useCallback(async (photos: Array<{ date: string | null; selectedClothesIds: string[] }>) => {
+    await onBulkPhotoSubmit(photos);
+    setShowBulkUpload(false);
+  }, [onBulkPhotoSubmit]);
+
+  if (showBulkUpload) {
+    return (
+      <div style={{ paddingBottom: '8rem', maxWidth: '800px', margin: '0 auto' }}>
+        <div className="max-w-4xl mx-auto px-4 pt-4 pb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900">Import From Photos</h2>
+            <p className="text-sm text-gray-600">Tag outfits from your camera roll to backfill the timeline.</p>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowBulkUpload(false)}
+          >
+            Back to timeline
+          </Button>
+        </div>
+        <BulkPhotoUpload
+          clothes={clothes}
+          onSubmit={handleBulkUploadSubmit}
+          onAddClothes={onCreateClothes}
+          typeOptions={typeOptions}
+          materialOptions={materialOptions}
+          madeInOptions={madeInOptions}
+          onManageTypes={onManageTypes}
+        />
+      </div>
+    );
+  }
+
   return (
     <div style={{ paddingBottom: '8rem', maxWidth: '800px', margin: '0 auto' }}>
       <div className="p-4 sm:p-4 space-y-3 sm:space-y-4">
         {/* Header */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-6">
+        <div className="flex flex-col sm:flex-row items-around sm:items-center justify-between gap-3 mb-6">
           {/* <div className="flex items-center gap-3">
             <Calendar className="w-5 h-5 text-blue-500" />
             <h1 className="text-lg sm:text-xl">Timeline</h1>
@@ -319,6 +361,15 @@ export function Timeline({ clothes, wearRecords, washRecords, onAddToDate }: Tim
               <span className="text-gray-500 hidden sm:inline">washed</span>
             </div>
           </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowBulkUpload(true)}
+            className="flex items-center gap-1"
+          >
+            <Upload className="w-4 h-4" />
+            <span className="text-xs sm:text-sm">Forgot to add photos? Upload now</span>
+          </Button>
         </div>
 
         {/* Filters */}

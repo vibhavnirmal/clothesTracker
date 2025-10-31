@@ -1,9 +1,10 @@
 import { useMemo, useState, useEffect } from 'react';
-import { Activity, Shirt, X } from 'lucide-react';
+import { Activity, Shirt, X, Filter } from 'lucide-react';
 import type { ClothesItem, WearRecord, WashRecord } from '../types';
 import { getColorName } from '../lib/colors';
 import { ImageWithFallback } from './ImageWithFallback';
 import { Button } from './ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 
 interface AnalysisProps {
 	clothes: ClothesItem[];
@@ -20,6 +21,7 @@ interface ItemSummary {
 
 export function Analysis({ clothes, wearRecords, washRecords }: AnalysisProps) {
 	const [selectedImage, setSelectedImage] = useState<{ src: string; name: string } | null>(null);
+	const [materialFilter, setMaterialFilter] = useState<string>('all');
 	
 	// Prevent body scroll when modal is open
 	useEffect(() => {
@@ -33,7 +35,15 @@ export function Analysis({ clothes, wearRecords, washRecords }: AnalysisProps) {
 		};
 	}, [selectedImage]);
 	
-	const { totals, perItemSummaries, topWorn, topWashed } = useMemo(() => {
+	const { totals, perItemSummaries, topWorn, topWashed, typeBreakdown, materialBreakdown, availableMaterials } = useMemo(() => {
+		// Filter clothes by selected material
+		const filteredClothes = materialFilter === 'all' 
+			? clothes 
+			: clothes.filter(item => {
+				if (!item.materials) return false;
+				return Object.keys(item.materials).some(mat => mat.toLowerCase() === materialFilter.toLowerCase());
+			});
+
 		const wearCountMap = new Map<string, number>();
 		const washCountMap = new Map<string, number>();
 
@@ -45,7 +55,7 @@ export function Analysis({ clothes, wearRecords, washRecords }: AnalysisProps) {
 			washCountMap.set(record.clothesId, (washCountMap.get(record.clothesId) ?? 0) + 1);
 		});
 
-		const perItemSummaries: ItemSummary[] = clothes.map(item => {
+		const perItemSummaries: ItemSummary[] = filteredClothes.map(item => {
 			const totalWearCount = wearCountMap.get(item.id) ?? 0;
 			const totalWashCount = washCountMap.get(item.id) ?? 0;
 			const averageWearsPerWash = totalWashCount > 0
@@ -70,9 +80,49 @@ export function Analysis({ clothes, wearRecords, washRecords }: AnalysisProps) {
 			.sort((a, b) => b.totalWashCount - a.totalWashCount)
 			.slice(0, 5);
 
+		// Calculate type breakdown
+		const typeCountMap = new Map<string, number>();
+		filteredClothes.forEach(item => {
+			const type = item.type || 'Uncategorized';
+			typeCountMap.set(type, (typeCountMap.get(type) ?? 0) + 1);
+		});
+
+		const typeBreakdownArray = Array.from(typeCountMap.entries())
+			.map(([type, count]) => ({ type, count }))
+			.sort((a, b) => b.count - a.count);
+
+		const maxTypeCount = Math.max(...typeBreakdownArray.map(t => t.count), 1);
+
+		// Calculate material breakdown across ALL clothes (not filtered)
+		const materialCountMap = new Map<string, { count: number; totalPercentage: number }>();
+		clothes.forEach(item => {
+			if (item.materials) {
+				Object.entries(item.materials).forEach(([material, percentage]) => {
+					const existing = materialCountMap.get(material) || { count: 0, totalPercentage: 0 };
+					materialCountMap.set(material, {
+						count: existing.count + 1,
+						totalPercentage: existing.totalPercentage + percentage,
+					});
+				});
+			}
+		});
+
+		const materialBreakdownArray = Array.from(materialCountMap.entries())
+			.map(([material, data]) => ({
+				material,
+				count: data.count,
+				averagePercentage: Math.round(data.totalPercentage / data.count),
+			}))
+			.sort((a, b) => b.count - a.count);
+
+		const maxMaterialCount = Math.max(...materialBreakdownArray.map(m => m.count), 1);
+
+		// Get all unique materials for filter dropdown
+		const allMaterials = Array.from(materialCountMap.keys()).sort();
+
 		return {
 			totals: {
-				uniqueItems: clothes.length,
+				uniqueItems: filteredClothes.length,
 				totalWearEntries: wearRecords.length,
 				totalWashEntries: washRecords.length,
 				neverWashedCount: perItemSummaries.filter(summary => summary.totalWashCount === 0).length,
@@ -81,8 +131,24 @@ export function Analysis({ clothes, wearRecords, washRecords }: AnalysisProps) {
 			perItemSummaries,
 			topWorn: topWornItems,
 			topWashed: topWashedItems,
+			typeBreakdown: typeBreakdownArray.map(item => ({
+				...item,
+				percentage: Math.round((item.count / filteredClothes.length) * 100),
+				barWidth: Math.round((item.count / maxTypeCount) * 100),
+			})),
+			materialBreakdown: materialBreakdownArray.map(item => ({
+				...item,
+				percentage: Math.round((item.count / clothes.length) * 100),
+				barWidth: Math.round((item.count / maxMaterialCount) * 100),
+			})),
+			availableMaterials: allMaterials,
 		};
-	}, [clothes, wearRecords, washRecords]);
+	}, [clothes, wearRecords, washRecords, materialFilter]);
+
+	// // Debug log
+	// useEffect(() => {
+	// 	console.log('Type Breakdown Data:', typeBreakdown);
+	// }, [typeBreakdown]);
 
 	type SortColumn = 'name' | 'type' | 'color' | 'totalWearCount' | 'totalWashCount' | 'averageWearsPerWash' | 'wearsSinceWash';
 	type SortDirection = 'asc' | 'desc';
@@ -206,6 +272,137 @@ export function Analysis({ clothes, wearRecords, washRecords }: AnalysisProps) {
             <p className="text-lg font-semibold text-amber-800">{totals.neverWashedCount} never washed</p>
             <p className="text-xs text-amber-700/70">{totals.neverWornCount} never worn</p>
           </div> */}
+				</section>
+
+				{/* Material Filter */}
+				{availableMaterials.length > 0 && (
+					<section className="mb-4">
+						<div className="rounded-xl border border-gray-200 bg-white p-4">
+							<div className="flex items-center justify-between gap-3 flex-wrap">
+								<div className="flex items-center gap-2 text-gray-700">
+									<Filter className="h-4 w-4" />
+									<p className="text-sm font-semibold">Filter by Material</p>
+								</div>
+								<Select value={materialFilter} onValueChange={setMaterialFilter}>
+									<SelectTrigger className="w-[180px]">
+										<SelectValue placeholder="All Materials" />
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem value="all">All Materials</SelectItem>
+										{availableMaterials.map(material => (
+											<SelectItem key={material} value={material}>
+												{material}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+							</div>
+							{materialFilter !== 'all' && (
+								<div className="mt-3 flex items-center gap-2">
+									<span className="text-xs text-gray-500">
+										Showing {totals.uniqueItems} item{totals.uniqueItems !== 1 ? 's' : ''} with {materialFilter}
+									</span>
+									<button
+										onClick={() => setMaterialFilter('all')}
+										className="text-xs text-blue-600 hover:text-blue-700 font-medium"
+									>
+										Clear filter
+									</button>
+								</div>
+							)}
+						</div>
+					</section>
+				)}
+
+				{/* Wardrobe Composition by Type */}
+				<section className="mb-4">
+					<div className="rounded-xl border border-purple-100 bg-white p-4">
+						<div className="flex items-center gap-2 text-purple-600 mb-4">
+							<Shirt className="h-4 w-4" />
+							<p className="text-sm font-semibold uppercase tracking-wide">Wardrobe Composition by Type</p>
+						</div>
+						
+						{typeBreakdown.length === 0 ? (
+							<p className="text-xs text-gray-500">No clothes added yet.</p>
+						) : (
+							<div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+								{typeBreakdown.map(({ type, count, percentage, barWidth }) => (
+									<div key={type} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+										<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '14px' }}>
+											<span style={{ fontWeight: '500', color: '#374151' }}>{type}</span>
+											<div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+												<span style={{ fontSize: '12px', color: '#6B7280' }}>{percentage}%</span>
+												<span style={{ fontSize: '14px', fontWeight: '600', color: '#111827' }}>{count}</span>
+											</div>
+										</div>
+										<div style={{ 
+											width: '100%', 
+											height: '8px', 
+											backgroundColor: '#F3F4F6', 
+											borderRadius: '9999px',
+											overflow: 'hidden'
+										}}>
+											<div
+												style={{ 
+													height: '100%', 
+													background: 'linear-gradient(to right, #A855F7, #C084FC)',
+													borderRadius: '9999px',
+													width: `${barWidth}%`,
+													transition: 'width 0.5s ease-out'
+												}}
+											/>
+										</div>
+									</div>
+								))}
+							</div>
+						)}
+					</div>
+				</section>
+
+				{/* Material Distribution */}
+				<section className="mb-4">
+					<div className="rounded-xl border border-indigo-100 bg-white p-4">
+						<div className="flex items-center gap-2 text-indigo-600 mb-4">
+							<Activity className="h-4 w-4" />
+							<p className="text-sm font-semibold uppercase tracking-wide">Material Distribution</p>
+						</div>
+						
+						{materialBreakdown.length === 0 ? (
+							<p className="text-xs text-gray-500">No material data available. Add materials to your clothes.</p>
+						) : (
+							<div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+								{materialBreakdown.map(({ material, count, percentage, averagePercentage, barWidth }) => (
+									<div key={material} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+										<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '14px' }}>
+											<span style={{ fontWeight: '500', color: '#374151' }}>{material}</span>
+											<div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+												<span style={{ fontSize: '11px', color: '#6B7280' }}>~{averagePercentage}% avg</span>
+												<span style={{ fontSize: '12px', color: '#6B7280' }}>{percentage}%</span>
+												<span style={{ fontSize: '14px', fontWeight: '600', color: '#111827' }}>{count}</span>
+											</div>
+										</div>
+										<div style={{ 
+											width: '100%', 
+											height: '8px', 
+											backgroundColor: '#F3F4F6', 
+											borderRadius: '9999px',
+											overflow: 'hidden'
+										}}>
+											<div
+												style={{ 
+													height: '100%', 
+													background: 'linear-gradient(to right, #6366F1, #818CF8)',
+													borderRadius: '9999px',
+													width: `${barWidth}%`,
+													transition: 'width 0.5s ease-out'
+												}}
+											/>
+										</div>
+									</div>
+								))}
+							</div>
+						)}
+					</div>
 				</section>
 
 				<section className="mb-4">

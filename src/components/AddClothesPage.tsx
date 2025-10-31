@@ -7,6 +7,7 @@ import { Button } from './ui/button';
 interface AddClothesPageProps {
   typeOptions: string[];
   materialOptions: string[];
+  madeInOptions?: string[];
   onSubmit: (payload: AddClothesPayload) => Promise<void> | void;
   onCancel: () => void;
   onManageTypes?: () => void;
@@ -16,6 +17,7 @@ interface AddClothesPageProps {
 export function AddClothesPage({
   typeOptions,
   materialOptions,
+  madeInOptions,
   onSubmit,
   onCancel,
   onManageTypes,
@@ -41,6 +43,7 @@ export function AddClothesPage({
           <ClothingForm
             typeOptions={typeOptions}
             materialOptions={materialOptions}
+            madeInOptions={madeInOptions}
             onSubmit={onSubmit}
             submitLabel="Add clothing"
             onCancel={onCancel}

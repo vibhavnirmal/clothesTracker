@@ -1,5 +1,5 @@
 import React, { useCallback, useState, useEffect } from 'react';
-import { Calendar, Check, X, Search, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Calendar, Check, X, Search, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import type { ClothesItem } from '../types';
@@ -21,6 +21,8 @@ interface PhotoReviewModalProps {
 	onUpdatePhoto: (index: number, updates: Partial<PhotoData>) => void;
 	onClose: () => void;
 	onSubmitAll: () => void;
+	onAddNewClothes?: (photoIndex: number) => void;
+	disableNavigation?: boolean;
 }
 
 export function PhotoReviewModal({
@@ -32,6 +34,8 @@ export function PhotoReviewModal({
 	onUpdatePhoto,
 	onClose,
 	onSubmitAll,
+	onAddNewClothes,
+	disableNavigation = false,
 }: PhotoReviewModalProps) {
 	const [searchTerm, setSearchTerm] = useState('');
 	const [touchStart, setTouchStart] = useState<number | null>(null);
@@ -50,32 +54,38 @@ export function PhotoReviewModal({
 	);
 
 	const handleToggleClothes = useCallback((clothesId: string) => {
+		if (disableNavigation) return;
 		const currentIds = currentPhoto.selectedClothesIds;
 		const newIds = currentIds.includes(clothesId)
 			? currentIds.filter(id => id !== clothesId)
 			: [...currentIds, clothesId];
 		
 		onUpdatePhoto(currentIndex, { selectedClothesIds: newIds });
-	}, [currentPhoto, currentIndex, onUpdatePhoto]);
+	}, [currentPhoto, currentIndex, onUpdatePhoto, disableNavigation]);
 
 	const handleDateChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+		if (disableNavigation) return;
 		onUpdatePhoto(currentIndex, { date: e.target.value });
-	}, [currentIndex, onUpdatePhoto]);
+	}, [currentIndex, onUpdatePhoto, disableNavigation]);
 
 	const handleClearSelection = useCallback(() => {
+		if (disableNavigation) return;
 		onUpdatePhoto(currentIndex, { selectedClothesIds: [] });
-	}, [currentIndex, onUpdatePhoto]);
+	}, [currentIndex, onUpdatePhoto, disableNavigation]);
 
 	const onTouchStart = useCallback((e: React.TouchEvent) => {
+		if (disableNavigation) return;
 		setTouchEnd(null);
 		setTouchStart(e.targetTouches[0].clientX);
-	}, []);
+	}, [disableNavigation]);
 
 	const onTouchMove = useCallback((e: React.TouchEvent) => {
+		if (disableNavigation) return;
 		setTouchEnd(e.targetTouches[0].clientX);
-	}, []);
+	}, [disableNavigation]);
 
 	const onTouchEnd = useCallback(() => {
+		if (disableNavigation) return;
 		if (!touchStart || !touchEnd) return;
 		
 		const distance = touchStart - touchEnd;
@@ -88,10 +98,13 @@ export function PhotoReviewModal({
 		if (isRightSwipe && currentIndex > 0) {
 			onPrevious();
 		}
-	}, [touchStart, touchEnd, currentIndex, totalPhotos, onNext, onPrevious, minSwipeDistance]);
+	}, [touchStart, touchEnd, currentIndex, totalPhotos, onNext, onPrevious, minSwipeDistance, disableNavigation]);
 
 	// Keyboard navigation
 	useEffect(() => {
+		if (disableNavigation) {
+			return;
+		}
 		const handleKeyDown = (e: KeyboardEvent) => {
 			if (e.key === 'ArrowLeft' && currentIndex > 0) {
 				e.preventDefault();
@@ -107,7 +120,7 @@ export function PhotoReviewModal({
 
 		window.addEventListener('keydown', handleKeyDown);
 		return () => window.removeEventListener('keydown', handleKeyDown);
-	}, [currentIndex, totalPhotos, onNext, onPrevious, onClose]);
+	}, [currentIndex, totalPhotos, onNext, onPrevious, onClose, disableNavigation]);
 
 	const selectedCount = currentPhoto.selectedClothesIds.length;
 	const completedPhotos = photos.filter(p => p.selectedClothesIds.length > 0).length;
@@ -162,7 +175,7 @@ export function PhotoReviewModal({
 									e.stopPropagation();
 									onPrevious();
 								}}
-								disabled={currentIndex === 0}
+								disabled={disableNavigation || currentIndex === 0}
 								className="bg-black/50 hover:bg-black/70 text-white border-0 disabled:opacity-30"
 								size="lg"
 								type="button"
@@ -174,7 +187,7 @@ export function PhotoReviewModal({
 									e.stopPropagation();
 									onNext();
 								}}
-								disabled={currentIndex === totalPhotos - 1}
+								disabled={disableNavigation || currentIndex === totalPhotos - 1}
 								className="bg-black/50 hover:bg-black/70 text-white border-0 disabled:opacity-30"
 								size="lg"
 								type="button"
@@ -232,6 +245,19 @@ export function PhotoReviewModal({
 									</Button>
 								</div>
 							)}
+							{onAddNewClothes && (
+								<Button
+									type="button"
+									variant="outline"
+									size="sm"
+									onClick={() => onAddNewClothes(currentIndex)}
+									className="mt-3 w-full justify-start border-dashed"
+									disabled={disableNavigation}
+								>
+									<Plus className="w-4 h-4 mr-2" />
+									Can't find your item? Add it now
+								</Button>
+							)}
 						</div>
 
 						{/* Clothes List */}
@@ -288,6 +314,18 @@ export function PhotoReviewModal({
 							{filteredClothes.length === 0 && (
 								<div className="text-center py-8 text-gray-500">
 									<p>No clothes found matching "{searchTerm}"</p>
+									{onAddNewClothes && (
+										<Button
+											type="button"
+											variant="outline"
+											size="sm"
+											onClick={() => onAddNewClothes(currentIndex)}
+											disabled={disableNavigation}
+										>
+											<Plus className="w-4 h-4 mr-2" />
+											Add new clothing
+										</Button>
+									)}
 								</div>
 							)}
 						</div>
@@ -305,6 +343,7 @@ export function PhotoReviewModal({
                 variant={'outline'}
 								onClick={onNext}
 								className=""
+								disabled={disableNavigation}
 							>
 								Next Photo
 								<ChevronRight className="w-4 h-4 ml-1" />
@@ -314,7 +353,7 @@ export function PhotoReviewModal({
                 variant={'outline'}
 								onClick={onSubmitAll}
 								className="bg-green-100 hover:cursor-pointer"
-								disabled={photos.some(p => !p.date)}
+								disabled={disableNavigation || photos.some(p => !p.date)}
 							>
 								<Check className="w-4 h-4 mr-2" />
 								Submit All ({completedPhotos} photos)

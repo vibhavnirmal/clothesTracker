@@ -1,10 +1,11 @@
-import { type ChangeEvent, type FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { type ChangeEvent, type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group';
 import { Checkbox } from './ui/checkbox';
+import { X, Search, Minus as MinusIcon, Plus as PlusIcon } from 'lucide-react';
 import { toast } from './ui/sonner';
 import type { AddClothesPayload } from '../types';
 import { COLOR_OPTIONS, getColorName } from '../lib/colors';
@@ -14,10 +15,50 @@ import { buildInitialClothingForm } from '../lib/buildInitialClothingForm';
 // Size and material options for clothing items
 const SIZE_OPTIONS = ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL', 'Free Size', 'Custom'];
 
+// Common manufacturing locations
+const DEFAULT_MADE_IN_LOCATIONS = [
+    'Bangladesh',
+    'China',
+    'India',
+    'Vietnam',
+    'Turkey',
+    'Indonesia',
+    'Pakistan',
+    'Thailand',
+    'Cambodia',
+    'Sri Lanka',
+    'USA',
+    'Mexico',
+    'Italy',
+    'Portugal',
+    'Romania'
+];
+
+const clampPercentage = (value: number) => {
+    if (!Number.isFinite(value)) {
+        return 0;
+    }
+    return Math.max(0, Math.min(100, Math.round(value)));
+};
+
+const calculateEvenDistribution = (materials: string[]): Record<string, number> => {
+    if (materials.length === 0) {
+        return {};
+    }
+
+    const base = Math.floor(100 / materials.length);
+    const remainder = 100 - base * (materials.length - 1);
+    return materials.reduce<Record<string, number>>((acc, material, index) => {
+        acc[material] = index === materials.length - 1 ? remainder : base;
+        return acc;
+    }, {});
+};
+
 interface ClothingFormProps {
     initialValues?: Partial<AddClothesPayload>;
     typeOptions: string[];
     materialOptions: string[];
+    madeInOptions?: string[];
     onSubmit: (payload: AddClothesPayload) => Promise<void> | void;
     submitLabel?: string;
     onCancel?: () => void;
@@ -31,6 +72,7 @@ export function ClothingForm({
     initialValues,
     typeOptions,
     materialOptions,
+    madeInOptions = [],
     onSubmit,
     submitLabel = 'Save',
     onCancel,
@@ -51,9 +93,166 @@ export function ClothingForm({
     const [materialPercentages, setMaterialPercentages] = useState<Record<string, number>>(() => 
         formData.materials || {}
     );
+    const [editedMaterials, setEditedMaterials] = useState<Set<string>>(() => new Set());
+    const [showMadeInModal, setShowMadeInModal] = useState(false);
+    const [madeInSearch, setMadeInSearch] = useState('');
     const processingImageRef = useRef(false);
     const imageInputRef = useRef<HTMLInputElement | null>(null);
     const cameraInputRef = useRef<HTMLInputElement | null>(null);
+
+    const totalMaterialPercentage = useMemo(() =>
+        selectedMaterials.reduce((acc, material) => acc + (materialPercentages[material] ?? 0), 0),
+        [selectedMaterials, materialPercentages]
+    );
+
+    const remainingMaterialPercentage = 100 - totalMaterialPercentage;
+    const hasMaterialTotalError = Math.abs(remainingMaterialPercentage) > 0.01;
+
+    useEffect(() => {
+        setEditedMaterials(prev => {
+            const filtered = new Set<string>();
+            selectedMaterials.forEach(material => {
+                if (prev.has(material)) {
+                    filtered.add(material);
+                }
+            });
+            if (filtered.size === prev.size) {
+                return prev;
+            }
+            return filtered;
+        });
+    }, [selectedMaterials]);
+
+    const handleMaterialPercentageChange = useCallback((material: string, nextValue: number, options?: { markEdited?: boolean }) => {
+        const markEdited = options?.markEdited ?? true;
+
+        setMaterialPercentages(prev => {
+            const next = { ...prev };
+            const updatedEdited = new Set(editedMaterials);
+            if (markEdited) {
+                updatedEdited.add(material);
+            }
+
+            const clampedValue = clampPercentage(nextValue);
+            next[material] = clampedValue;
+
+            const untouchedMaterials = selectedMaterials.filter(mat => !updatedEdited.has(mat) && mat !== material);
+            const autoMaterial = untouchedMaterials.length > 0
+                ? untouchedMaterials[untouchedMaterials.length - 1]
+                : null;
+
+            if (autoMaterial) {
+                const totalExcluding = selectedMaterials.reduce((acc, mat) => {
+                    if (mat === autoMaterial) {
+                        return acc;
+                    }
+                    return acc + (mat === material ? clampedValue : next[mat] ?? 0);
+                }, 0);
+                next[autoMaterial] = clampPercentage(100 - totalExcluding);
+            }
+
+            const sanitized: Record<string, number> = {};
+            selectedMaterials.forEach(mat => {
+                sanitized[mat] = next[mat] ?? 0;
+            });
+
+            setEditedMaterials(new Set(updatedEdited));
+            setFormData(prevForm => ({
+                ...prevForm,
+                materials: Object.keys(sanitized).length > 0 ? sanitized : undefined,
+            }));
+
+            return sanitized;
+        });
+    }, [editedMaterials, selectedMaterials, setFormData]);
+
+    const handleMaterialStep = useCallback((material: string, delta: number) => {
+        const current = materialPercentages[material] ?? 0;
+        handleMaterialPercentageChange(material, current + delta);
+    }, [materialPercentages, handleMaterialPercentageChange]);
+
+    const distributeEvenly = useCallback(() => {
+        if (selectedMaterials.length === 0) {
+            return;
+        }
+
+        const even = calculateEvenDistribution(selectedMaterials);
+        setMaterialPercentages(even);
+        setEditedMaterials(new Set());
+        setFormData(prevForm => ({
+            ...prevForm,
+            materials: even,
+        }));
+    }, [selectedMaterials, setFormData]);
+
+    const handleBalanceRemaining = useCallback(() => {
+        if (selectedMaterials.length === 0) {
+            return;
+        }
+
+        setMaterialPercentages(prev => {
+            const manualSet = new Set(editedMaterials);
+            const untouchedMaterials = selectedMaterials.filter(material => !manualSet.has(material));
+            let autoMaterial: string | null = untouchedMaterials.length > 0
+                ? untouchedMaterials[untouchedMaterials.length - 1]
+                : null;
+
+            if (!autoMaterial) {
+                autoMaterial = selectedMaterials[selectedMaterials.length - 1];
+            }
+
+            if (!autoMaterial) {
+                return prev;
+            }
+
+            const next = { ...prev };
+            const totalExcluding = selectedMaterials.reduce((acc, material) => {
+                if (material === autoMaterial) {
+                    return acc;
+                }
+                return acc + (next[material] ?? 0);
+            }, 0);
+            next[autoMaterial] = clampPercentage(100 - totalExcluding);
+
+            const sanitized: Record<string, number> = {};
+            selectedMaterials.forEach(material => {
+                sanitized[material] = next[material] ?? 0;
+            });
+
+            manualSet.delete(autoMaterial);
+            setEditedMaterials(new Set(manualSet));
+            setFormData(prevForm => ({
+                ...prevForm,
+                materials: sanitized,
+            }));
+
+            return sanitized;
+        });
+    }, [editedMaterials, selectedMaterials, setFormData]);
+
+    // Merge default locations with user's existing locations
+    const allMadeInOptions = useMemo(() => {
+        const combined = new Set([...DEFAULT_MADE_IN_LOCATIONS, ...(madeInOptions || [])]);
+        return Array.from(combined).sort();
+    }, [madeInOptions]);
+
+    const filteredMadeInOptions = useMemo(() => {
+        if (!madeInSearch.trim()) return allMadeInOptions;
+        const search = madeInSearch.toLowerCase();
+        return allMadeInOptions.filter(location => location.toLowerCase().includes(search));
+    }, [allMadeInOptions, madeInSearch]);
+
+    // Prevent body scroll when modal is open
+    useEffect(() => {
+        if (showMadeInModal) {
+            document.body.style.overflow = 'hidden';
+        } else {
+            document.body.style.overflow = '';
+        }
+        return () => {
+            document.body.style.overflow = '';
+        };
+    }, [showMadeInModal]);
 
     const availableTypeOptions = useMemo(() => {
         const unique = new Set<string>();
@@ -86,6 +285,7 @@ export function ClothingForm({
         setFormData(nextForm);
         setSelectedMaterials(nextForm.materials ? Object.keys(nextForm.materials) : []);
         setMaterialPercentages(nextForm.materials || {});
+        setEditedMaterials(new Set());
         if (nextForm.image) {
             setImageMeta({
                 size: estimateDataUrlBytes(nextForm.image),
@@ -290,6 +490,18 @@ export function ClothingForm({
                 </Select>
             </div>
 
+            <div className="space-y-2">
+                <Label htmlFor="made-in">Made In</Label>
+                <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setShowMadeInModal(true)}
+                    className="w-full justify-start text-left font-normal"
+                >
+                    {formData.madeIn || 'Select location...'}
+                </Button>
+            </div>
+
             <div className="space-y-3">
                 <Label>Material Composition</Label>
                 <div className="space-y-2">
@@ -304,37 +516,27 @@ export function ClothingForm({
                                         onCheckedChange={(checked) => {
                                             if (checked) {
                                                 const newMaterials = [...selectedMaterials, material];
+                                                const evenPercentages = calculateEvenDistribution(newMaterials);
                                                 setSelectedMaterials(newMaterials);
-                                                // Initialize with even distribution
-                                                const percentage = Math.floor(100 / newMaterials.length);
-                                                const newPercentages = { ...materialPercentages };
-                                                newMaterials.forEach((mat, idx) => {
-                                                    if (idx === newMaterials.length - 1) {
-                                                        // Last material gets the remainder
-                                                        newPercentages[mat] = 100 - (percentage * (newMaterials.length - 1));
-                                                    } else {
-                                                        newPercentages[mat] = percentage;
-                                                    }
-                                                });
-                                                setMaterialPercentages(newPercentages);
-                                                setFormData(prev => ({ ...prev, materials: newPercentages }));
+                                                setMaterialPercentages(evenPercentages);
+                                                setEditedMaterials(new Set());
+                                                setFormData(prev => ({ ...prev, materials: evenPercentages }));
                                             } else {
                                                 const newMaterials = selectedMaterials.filter(m => m !== material);
                                                 setSelectedMaterials(newMaterials);
-                                                const newPercentages = { ...materialPercentages };
-                                                delete newPercentages[material];
-                                                // Redistribute percentages
-                                                if (newMaterials.length > 0) {
-                                                    const percentage = Math.floor(100 / newMaterials.length);
-                                                    newMaterials.forEach((mat, idx) => {
-                                                        if (idx === newMaterials.length - 1) {
-                                                            newPercentages[mat] = 100 - (percentage * (newMaterials.length - 1));
-                                                        } else {
-                                                            newPercentages[mat] = percentage;
+                                                const newPercentages = newMaterials.length > 0
+                                                    ? calculateEvenDistribution(newMaterials)
+                                                    : {};
+                                                setMaterialPercentages(newPercentages);
+                                                setEditedMaterials(prevEdited => {
+                                                    const nextEdited = new Set<string>();
+                                                    newMaterials.forEach(mat => {
+                                                        if (prevEdited.has(mat)) {
+                                                            nextEdited.add(mat);
                                                         }
                                                     });
-                                                }
-                                                setMaterialPercentages(newPercentages);
+                                                    return nextEdited;
+                                                });
                                                 setFormData(prev => ({ 
                                                     ...prev, 
                                                     materials: newMaterials.length > 0 ? newPercentages : undefined 
@@ -355,36 +557,82 @@ export function ClothingForm({
 
                     {selectedMaterials.length > 0 && (
                         <div className="space-y-3 pt-2 border-t">
-                            <p className="text-sm text-muted-foreground">
-                                Adjust percentages (Total: {selectedMaterials.reduce((acc, mat) => acc + (materialPercentages[mat] || 0), 0).toFixed(1)}%)
-                            </p>
-                            {selectedMaterials.map(material => (
-                                <div key={material} className="space-y-1">
-                                    <div className="flex justify-between text-sm">
-                                        <Label htmlFor={`slider-${material}`}>{material}</Label>
-                                        <span className="font-medium">{materialPercentages[material] || 0}%</span>
-                                    </div>
-                                    <input
-                                        id={`slider-${material}`}
-                                        type="range"
-                                        min="0"
-                                        max="100"
-                                        step="1"
-                                        value={materialPercentages[material] || 0}
-                                        onChange={(e) => {
-                                            const newValue = parseInt(e.target.value);
-                                            const newPercentages = { ...materialPercentages, [material]: newValue };
-                                            setMaterialPercentages(newPercentages);
-                                            setFormData(prev => ({ ...prev, materials: newPercentages }));
-                                        }}
-                                        className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
-                                    />
-                                </div>
-                            ))}
-                            {Math.abs(selectedMaterials.reduce((acc, mat) => acc + (materialPercentages[mat] || 0), 0) - 100) > 0.01 && (
-                                <p className="text-sm text-red-500">
-                                    ⚠️ Total must equal 100%
+                            <div className="flex flex-wrap items-center justify-between gap-2" style={{ paddingTop: "10px"}}>
+                                <p className={`text-sm ${hasMaterialTotalError ? 'text-red-600' : 'text-muted-foreground'}`}>
+                                    Total: {totalMaterialPercentage.toFixed(1)}% {hasMaterialTotalError && `• ${remainingMaterialPercentage > 0 ? `${remainingMaterialPercentage.toFixed(1)}% unassigned` : `${Math.abs(remainingMaterialPercentage).toFixed(1)}% over`}`}
                                 </p>
+                                {selectedMaterials.length > 1 && (
+                                    <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={distributeEvenly}
+                                        className="h-7 px-2"
+                                    >
+                                        Distribute evenly
+                                    </Button>
+                                )}
+                            </div>
+                            <div className="space-y-2">
+                                {selectedMaterials.map(material => {
+                                    const value = materialPercentages[material] ?? 0;
+                                    return (
+                                        <div key={material} className="flex items-center justify-between gap-3 rounded-md border border-gray-200/80 px-2 py-2">
+                                            <span className="text-sm font-medium">{material}</span>
+                                            <div className="flex items-center gap-2">
+                                                <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    size="icon"
+                                                    className="h-8 w-8"
+                                                    onClick={() => handleMaterialStep(material, -1)}
+                                                    aria-label={`Decrease ${material}`}
+                                                >
+                                                    <MinusIcon className="h-4 w-4" />
+                                                </Button>
+                                                <Input
+                                                    type="number"
+                                                    min={0}
+                                                    max={100}
+                                                    step={1}
+                                                    value={value}
+                                                    onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                                                        handleMaterialPercentageChange(material, Number(event.target.value))
+                                                    }
+                                                    className="w-20 text-right"
+                                                    inputMode="numeric"
+                                                />
+                                                <span className="text-sm text-muted-foreground">%</span>
+                                                <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    size="icon"
+                                                    className="h-8 w-8"
+                                                    onClick={() => handleMaterialStep(material, 1)}
+                                                    aria-label={`Increase ${material}`}
+                                                >
+                                                    <PlusIcon className="h-4 w-4" />
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                            {hasMaterialTotalError && (
+                                <div className="flex flex-col gap-2">
+                                    <p className="text-sm text-red-600">
+                                        ⚠️ Total must equal 100%
+                                    </p>
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={handleBalanceRemaining}
+                                        className="w-fit"
+                                    >
+                                        Balance remaining automatically
+                                    </Button>
+                                </div>
                             )}
                         </div>
                     )}
@@ -541,6 +789,123 @@ export function ClothingForm({
                     {submitLabel}
                 </Button>
             </div>
+
+            {/* Made In Location Modal */}
+            {showMadeInModal && (
+                <div 
+                    className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto"
+                    style={{ backgroundColor: 'rgba(0, 0, 0, 0.5)' }}
+                    onClick={() => setShowMadeInModal(false)}
+                >
+                    <div 
+                        className="bg-white rounded-lg w-full max-w-md flex flex-col"
+                        style={{ margin: '1rem', maxHeight: '93vh', overflowY: 'auto' }}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        {/* Header */}
+                        <div className="flex items-center justify-between p-4 border-b">
+                            <h3 className="text-lg font-semibold">Select Manufacturing Location</h3>
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => setShowMadeInModal(false)}
+                            >
+                                <X className="h-4 w-4" />
+                            </Button>
+                        </div>
+
+                        {/* Search */}
+                        <div className="p-4 border-b">
+                            <div className="relative">
+                                <Search className="absolute right-2 top-2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                                <Input
+                                    type="text"
+                                    placeholder="Search or type custom location..."
+                                    value={madeInSearch}
+                                    onChange={(e) => setMadeInSearch(e.target.value)}
+                                    className="pl-10"
+                                    autoFocus
+                                />
+                            </div>
+                        </div>
+
+                        {/* Options List */}
+                        <div className="flex-1 overflow-y-auto p-2">
+                            {madeInSearch.trim() && !filteredMadeInOptions.some(loc => loc.toLowerCase() === madeInSearch.trim().toLowerCase()) && (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setFormData(prev => ({ ...prev, madeIn: madeInSearch.trim() }));
+                                        setShowMadeInModal(false);
+                                        setMadeInSearch('');
+                                    }}
+                                    className="w-full px-4 hover:bg-gray-50 rounded-md border-b border-gray-100"
+                                >
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-sm font-medium text-blue-600">+ Add "{madeInSearch.trim()}"</span>
+                                    </div>
+                                </button>
+                            )}
+                            
+                            {filteredMadeInOptions.length === 0 && !madeInSearch.trim() ? (
+                                <div className="text-center py-8 text-gray-500">
+                                    <p className="text-sm">No locations available</p>
+                                </div>
+                            ) : filteredMadeInOptions.length === 0 ? (
+                                <div className="text-center py-8 text-gray-500">
+                                    <p className="text-sm">No matching locations</p>
+                                    <p className="text-xs mt-1">Press the button above to add custom location</p>
+                                </div>
+                            ) : (
+                                <>
+                                    {formData.madeIn && (
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setFormData(prev => ({ ...prev, madeIn: undefined }));
+                                                setShowMadeInModal(false);
+                                                setMadeInSearch('');
+                                            }}
+                                            style={{ width: '100%', textAlign: 'left', padding: '0.75rem 1rem', borderRadius: '0.375rem', borderBottom: '1px solid #e5e7eb', color: '#dc2626' }}
+                                        >
+                                            <span className="text-sm font-medium">✕ Clear selection</span>
+                                        </button>
+                                    )}
+                                    {filteredMadeInOptions.map((location) => (
+                                        <button
+                                            key={location}
+                                            type="button"
+                                            onClick={() => {
+                                                setFormData(prev => ({ ...prev, madeIn: location }));
+                                                setShowMadeInModal(false);
+                                                setMadeInSearch('');
+                                            }}
+                                            // className={`w-full text-left px-4 py-3 hover:bg-gray-50 rounded-md ${
+                                            //     formData.madeIn === location ? 'bg-blue-50 border-l-4 border-blue-500' : ''
+                                            // }`}
+                                            style={{
+                                                width: "100%",
+                                                textAlign: "left",
+                                                padding: "0.75rem 1rem",
+                                                borderRadius: "0.375rem",
+                                                borderBottom: "1px solid #e5e7eb",
+                                                backgroundColor: formData.madeIn === location ? '#eff6ff' : 'transparent',
+                                                borderLeft: formData.madeIn === location ? '4px solid #3b82f6' : '4px solid transparent',
+                                            }}
+                                        >
+                                            <span className={`text-sm ${formData.madeIn === location ? 'font-semibold text-blue-700' : ''}`}>
+                                                {location}
+                                                {formData.madeIn === location && <span className="ml-2">✓</span>}
+                                            </span>
+                                        </button>
+                                    ))}
+                                </>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
         </form>
     );
 }

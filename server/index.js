@@ -126,10 +126,18 @@ const hasMaterialsColumn = clothesTableColumns.some(column => column.name === 'm
 if (!hasMaterialsColumn) {
   db.exec('ALTER TABLE clothes ADD COLUMN materials TEXT');
 }
+const hasMadeInColumn = clothesTableColumns.some(column => column.name === 'made_in');
+if (!hasMadeInColumn) {
+  db.exec('ALTER TABLE clothes ADD COLUMN made_in TEXT');
+}
+const hasCreatedAtColumn = clothesTableColumns.some(column => column.name === 'created_at');
+if (!hasCreatedAtColumn) {
+  db.exec('ALTER TABLE clothes ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP');
+}
 
 const insertClothes = db.prepare(`
-  INSERT INTO clothes (id, name, type, color, image, date_of_purchase, wears_since_wash, last_wash_date, size, materials)
-  VALUES (@id, @name, @type, @color, @image, @dateOfPurchase, 0, NULL, @size, @materials)
+  INSERT INTO clothes (id, name, type, color, image, date_of_purchase, wears_since_wash, last_wash_date, size, materials, made_in, created_at)
+  VALUES (@id, @name, @type, @color, @image, @dateOfPurchase, 0, NULL, @size, @materials, @madeIn, @createdAt)
 `);
 
 const insertWearRecord = db.prepare(`
@@ -166,7 +174,8 @@ const updateClothesById = db.prepare(`
       image = @image,
       date_of_purchase = @dateOfPurchase,
       size = @size,
-      materials = @materials
+      materials = @materials,
+      made_in = @madeIn
   WHERE id = @id
 `);
 
@@ -212,6 +221,7 @@ function serializeClothes(row) {
     lastWashDate: row.last_wash_date || undefined,
     size: row.size || undefined,
     materials: row.materials ? JSON.parse(row.materials) : undefined,
+    madeIn: row.made_in || undefined,
     createdAt: row.created_at || undefined,
   };
 }
@@ -348,6 +358,9 @@ function normalizeClothesPayload(payload, options = {}) {
   const hasSizeField = Object.prototype.hasOwnProperty.call(raw, 'size');
   const sizeInput = hasSizeField && typeof raw.size === 'string' ? raw.size.trim() : '';
   
+  const hasMadeInField = Object.prototype.hasOwnProperty.call(raw, 'madeIn');
+  const madeInInput = hasMadeInField && typeof raw.madeIn === 'string' ? raw.madeIn.trim() : '';
+  
   const hasMaterialsField = Object.prototype.hasOwnProperty.call(raw, 'materials');
   const materialsInput = raw.materials || null;
 
@@ -380,6 +393,13 @@ function normalizeClothesPayload(payload, options = {}) {
   if (hasSizeField && sizeInput.length > 0) {
     if (sizeInput.length > 20) {
       errors.push('Size must be at most 20 characters.');
+    }
+  }
+
+  // Validate madeIn (optional, max 100 characters)
+  if (hasMadeInField && madeInInput.length > 0) {
+    if (madeInInput.length > 100) {
+      errors.push('Made In location must be at most 100 characters.');
     }
   }
 
@@ -455,12 +475,14 @@ function normalizeClothesPayload(payload, options = {}) {
       image: normalizedImage, 
       dateOfPurchase: dateOfPurchaseInput,
       size: sizeInput.length > 0 ? sizeInput : undefined,
-      materials: normalizedMaterials || undefined
+      materials: normalizedMaterials || undefined,
+      madeIn: madeInInput.length > 0 ? madeInInput : undefined
     },
     hasImageField,
     hasDateField,
     hasSizeField,
     hasMaterialsField,
+    hasMadeInField,
   };
 }
 
@@ -685,6 +707,8 @@ app.post('/api/clothes', (req, res) => {
     dateOfPurchase: data.dateOfPurchase.length > 0 ? data.dateOfPurchase : null,
     size: data.size || null,
     materials: data.materials ? JSON.stringify(data.materials) : null,
+    madeIn: data.madeIn || null,
+    createdAt: new Date().toISOString(),
   });
   const row = selectClothesRowById.get(id);
   res.status(201).json(serializeClothes(row));
@@ -702,7 +726,7 @@ app.put('/api/clothes/:id', (req, res) => {
     return res.status(404).json({ message: 'Clothing item not found' });
   }
 
-  const { errors, data, hasImageField, hasDateField, hasSizeField, hasMaterialsField } = normalizeClothesPayload(req.body, { allowOmittingImage: true });
+  const { errors, data, hasImageField, hasDateField, hasSizeField, hasMaterialsField, hasMadeInField } = normalizeClothesPayload(req.body, { allowOmittingImage: true });
 
   if (errors.length > 0) {
     return res.status(400).json({
@@ -724,6 +748,7 @@ app.put('/api/clothes/:id', (req, res) => {
     materials: hasMaterialsField 
       ? (data.materials ? JSON.stringify(data.materials) : null)
       : existing.materials,
+    madeIn: hasMadeInField ? (data.madeIn || null) : existing.made_in,
   };
 
   updateClothesById.run(updatePayload);

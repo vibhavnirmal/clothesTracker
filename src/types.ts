@@ -9,6 +9,7 @@ export interface ClothesItem {
   lastWashDate?: string;
   size?: string;
   materials?: Record<string, number>; // e.g., { "Cotton": 70, "Polyester": 30 }
+  madeIn?: string;
   createdAt?: string;
 }
 
@@ -38,4 +39,5 @@ export interface AddClothesPayload {
   dateOfPurchase?: string;
   size?: string;
   materials?: Record<string, number>;
+  madeIn?: string;
 }

@@ -1,10 +1,9 @@
 import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Calendar, Home, PieChart, Settings as SettingsIcon, Waves, Check, Search, X, Filter, ArrowUpDown, Plus, Camera, Image } from 'lucide-react';
+import { Calendar, Home, PieChart, Settings as SettingsIcon, Waves, Check, Search, X, Filter, ArrowUpDown, Plus } from 'lucide-react';
 import { ClothesCard } from './components/ClothesCard';
 import { AddClothesModal } from './components/AddClothesModal';
 import { AddClothesPage } from './components/AddClothesPage';
 import { WashClothes } from './components/WashClothes';
-import { BulkPhotoUpload } from './components/BulkPhotoUpload';
 import { Button } from './components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './components/ui/select';
 import {
@@ -69,7 +68,6 @@ function detectStandalone(): boolean {
 }
 
 type TabType = 'home' | 'add' | 'wash' | 'timeline' | 'analysis' | 'settings';
-type AddSubTab = 'item' | 'photos';
 
 const Timeline = lazy(async () => {
 	const module = await import('./components/Timeline');
@@ -93,7 +91,6 @@ const NAV_ITEMS: Array<{ id: Exclude<TabType, 'settings'>; icon: typeof Home; la
 
 export default function App() {
 	const [activeTab, setActiveTab] = useState<TabType>('home');
-	const [addSubTab, setAddSubTab] = useState<AddSubTab>('item');
 	const [clothes, setClothes] = useState<ClothesItem[]>([]);
 	const [wearRecords, setWearRecords] = useState<WearRecord[]>([]);
 	const [washRecords, setWashRecords] = useState<WashRecord[]>([]);
@@ -114,7 +111,8 @@ export default function App() {
 	const [typeFilter, setTypeFilter] = useState('');
 	const [colorFilter, setColorFilter] = useState('');
 	const [searchQuery, setSearchQuery] = useState('');
-	const [sortBy, setSortBy] = useState<'name' | 'mostWorn' | 'leastWorn' | 'recentlyAdded' | 'needsWash'>('name');
+	const [sortBy, setSortBy] = useState<'name' | 'mostWorn' | 'leastWorn' | 'needsWash'>('name');
+	const [showFilters, setShowFilters] = useState(false);
 	const [settingsSection, setSettingsSection] = useState<SettingsSection>('overview');
 	const [postAddRedirectTab, setPostAddRedirectTab] = useState<TabType>('home');
 	const undoingWearIdsRef = useRef<Set<string>>(new Set());
@@ -191,6 +189,16 @@ export default function App() {
 	const handleMaterialsUpdated = useCallback((materials: string[]) => {
 		setMaterialTypes(materials);
 	}, []);
+
+	const madeInLocations = useMemo(() => {
+		const unique = new Set<string>();
+		clothes.forEach(item => {
+			if (item.madeIn && item.madeIn.trim().length > 0) {
+				unique.add(item.madeIn.trim());
+			}
+		});
+		return Array.from(unique).sort();
+	}, [clothes]);
 
 	const availableTypes = useMemo(() => {
 		const unique = new Set<string>();
@@ -283,23 +291,7 @@ export default function App() {
 					if (aNeeds !== bNeeds) return bNeeds - aNeeds;
 					return b.wearsSinceWash - a.wearsSinceWash;
 				});
-			case 'recentlyAdded':
-				return sorted.sort((a, b) => {
-					// Sort by createdAt if available, otherwise by dateOfPurchase, then by ID
-					if (a.createdAt && b.createdAt) {
-						return b.createdAt.localeCompare(a.createdAt);
-					}
-					if (a.createdAt) return -1;
-					if (b.createdAt) return 1;
 
-					if (a.dateOfPurchase && b.dateOfPurchase) {
-						return b.dateOfPurchase.localeCompare(a.dateOfPurchase);
-					}
-					if (a.dateOfPurchase) return -1;
-					if (b.dateOfPurchase) return 1;
-
-					return b.id.localeCompare(a.id);
-				});
 			case 'name':
 			default:
 				return sorted.sort((a, b) => a.name.localeCompare(b.name));
@@ -647,9 +639,14 @@ export default function App() {
 
 	const resetActionError = useCallback(() => setActionError(null), []);
 
-	const openAddPage = useCallback((redirectTab: TabType, subTab: AddSubTab = 'item') => {
+	const openManageTypes = useCallback(() => {
+		setSettingsSection('clothingTypes');
+		setActiveTab('settings');
+		resetActionError();
+	}, [resetActionError, setSettingsSection, setActiveTab]);
+
+	const openAddPage = useCallback((redirectTab: TabType) => {
 		setPostAddRedirectTab(redirectTab);
-		setAddSubTab(subTab);
 		setActiveTab('add');
 		resetActionError();
 	}, [resetActionError]);
@@ -716,17 +713,22 @@ export default function App() {
 		[wearStatus, resetActionError]
 	);
 
-	const handleAddClothes = useCallback(async (payload: AddClothesPayload) => {
+	const createAndStoreClothes = useCallback(async (payload: AddClothesPayload): Promise<ClothesItem> => {
 		resetActionError();
 		try {
 			const created = await createClothes(payload);
 			setClothes(prev => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)));
+			return created;
 		} catch (err) {
 			const message = err instanceof Error ? err.message : 'Failed to add clothes';
 			setActionError(message);
 			throw err;
 		}
-	}, [resetActionError]);
+	}, [resetActionError, setClothes, setActionError]);
+
+	const handleAddClothes = useCallback(async (payload: AddClothesPayload) => {
+		await createAndStoreClothes(payload);
+	}, [createAndStoreClothes]);
 
 	const handleUpdateClothes = useCallback(async (payload: AddClothesPayload) => {
 		if (!editingClothes) return;
@@ -887,7 +889,7 @@ export default function App() {
 			case 'home':
 				return (
 					<div className="" style={{ paddingBottom: '5rem', maxWidth: '800px', margin: '0 auto' }}>
-						<div className="text-center px-2 text-xl font-semibold font-sans text-gray-700 mt-2">
+						{/* <div className="text-center px-2 text-xl font-semibold font-sans text-gray-700 mt-2">
 							What are you wearing today (
 							{(() => {
 								const d = new Date();
@@ -895,170 +897,140 @@ export default function App() {
 								const dd = String(d.getDate()).padStart(2, '0');
 								return `${mm}/${dd}`;
 							})()})&nbsp;?
-						</div>
+						</div> */}
 						<div className="p-4">
-							{/* Search Bar */}
-							<div className="mb-4">
-								<div className="relative">
-									<input
-										type="text"
-										placeholder="Search by name or type..."
-										value={searchQuery}
-										onChange={(e) => setSearchQuery(e.target.value)}
-										className="w-full py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-										style={{ paddingRight: '10px', paddingLeft: '10px' }}
-									/>
-									{searchQuery && (
-										<button
-											onClick={() => setSearchQuery('')}
-											className="absolute right-2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-											style={{ top: '12px' }}
-											aria-label="Clear search"
-										>
-											<X className="h-4 w-4" />
-										</button>
-									)}
-								</div>
-							</div>
-
-							{/* Compact Filter & Sort Toolbar */}
-							<div className="bg-gray-50 border border-gray-200 rounded-lg p-3 mb-4" style={{ padding: '12px' }}>
-								<div className="items-center" style={{ paddingBottom: '12px' }}>
-									{/* Filter Section */}
-									<div className="flex items-center gap-2 flex-wrap">
-										<div className="flex items-center gap-1 text-sm font-medium text-gray-700">
-											<Filter className="h-4 w-4" />
-											<span className="hidden sm:inline">Filter</span>
-										</div>
-										<Select
-											value={typeFilter || 'all'}
-											onValueChange={value => setTypeFilter(value === 'all' ? '' : value)}
-										>
-											<SelectTrigger size="sm" className="min-w-[120px]">
-												<SelectValue placeholder="Type" />
-											</SelectTrigger>
-											<SelectContent>
-												<SelectItem value="all">All types</SelectItem>
-												{availableTypes.map(type => (
-													<SelectItem key={type} value={type}>
-														{type}
-													</SelectItem>
-												))}
-											</SelectContent>
-										</Select>
-
-										<Select
-											value={colorFilter || 'all'}
-											onValueChange={value => setColorFilter(value === 'all' ? '' : value)}
-											disabled={availableColors.length === 0}
-										>
-											<SelectTrigger size="sm" className="min-w-[120px]">
-												<SelectValue placeholder="Color" />
-											</SelectTrigger>
-											<SelectContent>
-												<SelectItem value="all">All colors</SelectItem>
-												{availableColors.map(option => (
-													<SelectItem key={option.value} value={option.value}>
-														<span className="flex items-center gap-2">
-															<span
-																className="h-3 w-3 rounded-full border border-gray-300"
-																style={{ backgroundColor: option.value }}
-															/>
-															{option.label}
-														</span>
-													</SelectItem>
-												))}
-											</SelectContent>
-										</Select>
-									</div>
-
-									{/* Divider */}
-									<div className="hidden sm:block h-6 w-px bg-gray-300" />
-
-									{/* Sort Section */}
-									<div className="flex items-center gap-2 flex-wrap">
-										<div className="flex items-center gap-1 text-sm font-medium text-gray-700">
-											<ArrowUpDown className="h-4 w-4" />
-											<span className="hidden sm:inline">Sort</span>
-										</div>
-										<Select
-											value={sortBy}
-											onValueChange={(value) => setSortBy(value as typeof sortBy)}
-										>
-											<SelectTrigger size="sm" className="min-w-[140px]">
-												<SelectValue />
-											</SelectTrigger>
-											<SelectContent>
-												<SelectItem value="name">Name (A-Z)</SelectItem>
-												<SelectItem value="mostWorn">Most Worn</SelectItem>
-												<SelectItem value="leastWorn">Least Worn</SelectItem>
-												<SelectItem value="needsWash">Needs Wash</SelectItem>
-												<SelectItem value="recentlyAdded">Recently Added</SelectItem>
-											</SelectContent>
-										</Select>
-									</div>
-
-									{/* Clear Filters Button */}
-									{(typeFilter || colorFilter) && (
-										<div className="">
-											<div className="hidden sm:block h-6 w-px bg-gray-300" />
+							{/* Compact Search and Filter Bar */}
+							<div className="mb-3">
+								{/* Search with Sort and Filter Button */}
+								<div className="flex gap-2 mb-2">
+									<div className="relative flex-1">
+										<Search className="absolute right-2 top-2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+										<input
+											type="text"
+											placeholder="Search..."
+											value={searchQuery}
+											onChange={(e) => setSearchQuery(e.target.value)}
+											className="w-full py-2 px-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+										/>
+										{searchQuery && (
 											<button
-												onClick={() => {
-													setTypeFilter('');
-													setColorFilter('');
-												}}
-												className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-700 hover:text-gray-900 bg-white hover:bg-gray-100 border border-gray-300 rounded-md transition-colors"
-												aria-label="Clear filters"
+												onClick={() => setSearchQuery('')}
+												className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+												aria-label="Clear search"
 											>
-												<X className="h-3 w-3" />
-												Clear
+												<X className="h-4 w-4" />
 											</button>
-										</div>
-									)}
+										)}
+									</div>
+									
+									{/* Filter Toggle Button */}
+									<button
+										onClick={() => setShowFilters(!showFilters)}
+										className={`flex items-center gap-1 px-3 py-2 border rounded-lg transition-colors ${
+											showFilters || typeFilter || colorFilter
+												? 'bg-blue-50 border-blue-300 text-blue-700'
+												: 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+										}`}
+										aria-label="Toggle filters"
+										aria-expanded={showFilters}
+									>
+										<Filter className="h-4 w-4" />
+										{(typeFilter || colorFilter) && (
+											<span className="hidden sm:inline text-xs font-medium">
+												({[typeFilter, colorFilter].filter(Boolean).length})
+											</span>
+										)}
+									</button>
+
+									{/* Sort Dropdown */}
+									<Select
+										value={sortBy}
+										onValueChange={(value) => setSortBy(value as typeof sortBy)}
+									>
+										<SelectTrigger className="w-[120px] sm:w-[140px]">
+											<ArrowUpDown className="h-4 w-4 mr-1" />
+											<span className="hidden sm:inline"><SelectValue /></span>
+											<span className="sm:hidden text-xs"><SelectValue /></span>
+										</SelectTrigger>
+										<SelectContent>
+											<SelectItem value="name">Name</SelectItem>
+											<SelectItem value="mostWorn">Most Worn</SelectItem>
+											<SelectItem value="leastWorn">Least Worn</SelectItem>
+											<SelectItem value="needsWash">Needs Wash</SelectItem>
+										</SelectContent>
+									</Select>
 								</div>
 
-								{/* Active Filters Chips */}
-								{(typeFilter || colorFilter) && (
-									<div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-gray-200" style={{ paddingTop: '12px' }}>
-										<span className="text-xs text-gray-600 flex items-center align-center center">Active:</span>
-										{typeFilter && (
-											<span className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded-full">
-												{typeFilter}
+								{/* Collapsible Filter Section */}
+								{showFilters && (
+									<div className="bg-gray-50 border border-gray-200 rounded-lg mb-2 animate-in slide-in-from-top-2 duration-200" style={{ padding: "15px"}}>
+										<div className="flex items-center gap-2 flex-wrap">
+											<span className="text-xs font-medium text-gray-700">Filters:</span>
+											
+											<Select
+												value={typeFilter || 'all'}
+												onValueChange={value => setTypeFilter(value === 'all' ? '' : value)}
+											>
+												<SelectTrigger size="sm" className="h-8 text-sm">
+													<SelectValue placeholder="Type" />
+												</SelectTrigger>
+												<SelectContent>
+													<SelectItem value="all">All types</SelectItem>
+													{availableTypes.map(type => (
+														<SelectItem key={type} value={type}>
+															{type}
+														</SelectItem>
+													))}
+												</SelectContent>
+											</Select>
+
+											<Select
+												value={colorFilter || 'all'}
+												onValueChange={value => setColorFilter(value === 'all' ? '' : value)}
+												disabled={availableColors.length === 0}
+											>
+												<SelectTrigger size="sm" className="h-8 text-sm">
+													<SelectValue placeholder="Color" />
+												</SelectTrigger>
+												<SelectContent>
+													<SelectItem value="all">All colors</SelectItem>
+													{availableColors.map(option => (
+														<SelectItem key={option.value} value={option.value}>
+															<span className="flex items-center gap-2">
+																<span
+																	className="h-3 w-3 rounded-full border border-gray-300"
+																	style={{ backgroundColor: option.value }}
+																/>
+																{option.label}
+															</span>
+														</SelectItem>
+													))}
+												</SelectContent>
+											</Select>
+
+											{(typeFilter || colorFilter) && (
 												<button
-													onClick={() => setTypeFilter('')}
-													className="hover:bg-blue-200 rounded-full p-0.5"
-													aria-label={`Remove ${typeFilter} filter`}
+													onClick={() => {
+														setTypeFilter('');
+														setColorFilter('');
+													}}
+													className="flex items-center gap-1 h-8 px-2.5 py-1 text-xs text-red-600 hover:text-red-700 hover:bg-red-50 rounded-md transition-colors border border-red-200"
+													style={{ paddingLeft: "5px", paddingRight: "10px"}}
+													aria-label="Clear all filters"
 												>
 													<X className="h-3 w-3" />
+													<span className="hidden sm:inline">Clear</span>
 												</button>
-											</span>
-										)}
-										{colorFilter && (
-											<span className="flex items-center gap-1 px-2 py-1 bg-blue-100 text-purple-700 text-xs rounded-full">
-												<span
-													className="h-2 w-2 rounded-full border border-purple-300"
-													style={{ backgroundColor: colorFilter }}
-												/>
-												<span className=''>
-													{availableColors.find(c => c.value === colorFilter)?.label || 'Color'}
-												</span>
-												<button
-													onClick={() => setColorFilter('')}
-													className="hover:bg-purple-200 rounded-full p-0.5"
-													aria-label="Remove color filter"
-												>
-													<X className="h-3 w-3" />
-												</button>
-											</span>
-										)}
+											)}
+										</div>
 									</div>
 								)}
 							</div>
 
 							{/* Results counter */}
 							{(searchQuery || typeFilter || colorFilter) && (
-								<div className="mb-3 text-sm text-gray-600">
-									Showing {sortedClothes.length} of {clothes.length} item{clothes.length !== 1 ? 's' : ''}
+								<div className="mb-3 text-xs text-gray-500 px-1">
+									{sortedClothes.length} of {clothes.length} items
 								</div>
 							)}
 
@@ -1116,70 +1088,29 @@ export default function App() {
 			case 'add':
 				return (
 					<div style={{ paddingBottom: '5rem', maxWidth: '800px', margin: '0 auto' }}>
-						{/* Sub-tab switcher */}
-						<div className="bg-white sticky top-0 z-10">
-							<div className="flex" style={{ padding: "10px"}}>
-								<button
-									onClick={() => setAddSubTab('item')}
-									className={`flex-1 py-2 text-sm font-medium border-b-2 transition-colors ${
-										addSubTab === 'item'
-											? ''
-											: 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-									}`}
-									// use style instead of class to avoid tailwind conflict oh addSubTab
-									style={{ backgroundColor: addSubTab === 'item' ? '#f2f2f2' : 'white', borderRadius: addSubTab === 'item' ? '0.25rem' : '0' }}
-								>
-									<Plus className="w-4 h-4 inline-block mr-2" />
-									Add Item
-								</button>
-								<button
-									onClick={() => setAddSubTab('photos')}
-									className={`flex-1 py-2 text-sm font-medium border-b-2 transition-colors ${
-										addSubTab === 'photos'
-											? ''
-											: 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-									}`}
-									// use style instead of class to avoid tailwind conflict oh addSubTab
-									style={{ backgroundColor: addSubTab === 'photos' ? '#f2f2f2' : 'white', borderRadius: addSubTab === 'photos' ? '0.25rem' : '0' }}
-								>
-									<Image className="w-4 h-4 inline-block mr-2" />
-									Add Photos
-								</button>
-							</div>
-						</div>
-
-						{/* Content based on selected sub-tab */}
-						{addSubTab === 'item' ? (
-							<AddClothesPage
-								typeOptions={clothingTypes}
-								materialOptions={materialTypes}
-								onSubmit={handleAddClothes}
-								onCancel={() => {
-									if (postAddRedirectTab === 'settings') {
-										setSettingsSection('overview');
-									}
-									setActiveTab(postAddRedirectTab);
-									resetActionError();
-								}}
-								onManageTypes={() => {
-									setSettingsSection('clothingTypes');
-									setActiveTab('settings');
-									resetActionError();
-								}}
-								onSubmitSuccess={() => {
-									if (postAddRedirectTab === 'settings') {
-										setSettingsSection('overview');
-									}
-									setActiveTab(postAddRedirectTab);
-									resetActionError();
-								}}
-							/>
-						) : (
-							<BulkPhotoUpload
-								clothes={clothes}
-								onSubmit={handleBulkPhotoSubmit}
-							/>
-						)}
+						<AddClothesPage
+							typeOptions={clothingTypes}
+							materialOptions={materialTypes}
+							madeInOptions={madeInLocations}
+							onSubmit={handleAddClothes}
+							onCancel={() => {
+								if (postAddRedirectTab === 'settings') {
+									setSettingsSection('overview');
+								}
+								setActiveTab(postAddRedirectTab);
+								resetActionError();
+							}}
+							onManageTypes={() => {
+							openManageTypes();
+						}}
+							onSubmitSuccess={() => {
+								if (postAddRedirectTab === 'settings') {
+									setSettingsSection('overview');
+								}
+								setActiveTab(postAddRedirectTab);
+								resetActionError();
+							}}
+						/>
 					</div>
 				);
 
@@ -1205,6 +1136,12 @@ export default function App() {
 							wearRecords={wearRecords}
 							washRecords={washRecords}
 							onAddToDate={handleAddToDate}
+							onBulkPhotoSubmit={handleBulkPhotoSubmit}
+							onCreateClothes={createAndStoreClothes}
+							typeOptions={clothingTypes}
+							materialOptions={materialTypes}
+							madeInOptions={madeInLocations}
+							onManageTypes={openManageTypes}
 						/>
 					</Suspense>
 				);
@@ -1266,7 +1203,7 @@ export default function App() {
 							activeSection={settingsSection}
 							onSectionChange={setSettingsSection}
 							typeUsage={clothingTypeUsage}
-							onCreateClothing={() => openAddPage('settings', 'item')}
+							onCreateClothing={() => openAddPage('settings')}
 							onPurgeDatabase={handlePurgeDatabase}
 						/>
 					</Suspense>
@@ -1418,9 +1355,11 @@ export default function App() {
 					image: editingClothes.image ?? '',
 					size: editingClothes.size,
 					materials: editingClothes.materials,
+					madeIn: editingClothes.madeIn,
 				} : undefined}
 				typeOptions={clothingTypes}
 				materialOptions={materialTypes}
+				madeInOptions={madeInLocations}
 				onManageTypes={() => {
 					setEditingClothes(null);
 					setSettingsSection('clothingTypes');
@@ -1448,9 +1387,6 @@ export default function App() {
 								key={id}
 								type="button"
 								onClick={() => {
-									if (id === 'add') {
-										setAddSubTab('item');
-									}
 									setActiveTab(id);
 									resetActionError();
 								}}
