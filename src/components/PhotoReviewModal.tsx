@@ -249,13 +249,13 @@ export function PhotoReviewModal({
 								<Button
 									type="button"
 									variant="outline"
-									size="sm"
+									className="w-full justify-start mt-3"
+									style={{ marginTop: "10px", padding: "10px"}}
 									onClick={() => onAddNewClothes(currentIndex)}
-									className="mt-3 w-full justify-start border-dashed"
 									disabled={disableNavigation}
 								>
 									<Plus className="w-4 h-4 mr-2" />
-									Can't find your item? Add it now
+									Not in wardrobe yet? Add it now
 								</Button>
 							)}
 						</div>
