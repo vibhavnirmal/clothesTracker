@@ -165,11 +165,14 @@ export function PhotoReviewModal({
 						<img
 							src={currentPhoto.preview}
 							alt={`Photo ${currentIndex + 1}`}
-							className="max-w-full rounded-lg" style={{ height: "200px"}}
+							className="rounded-lg"
+							// make image fit into 25vh height, its okay if top and bottom get cropped
+							style={{ maxHeight: "25vh", marginBottom: "20px", width: "50%", objectFit: "cover" }}
 						/>
 						
 						{/* Navigation Arrows */}
-						<div className="p-4 flex justify-between px-4 gap-4">
+						<div className="absolute inset-0 p-4 flex justify-between gap-4"
+							style={{ alignItems: "center" }}>
 							<Button
 								onClick={(e) => {
 									e.stopPropagation();
@@ -201,10 +204,10 @@ export function PhotoReviewModal({
 					{/* Clothes Selection - Right Side */}
 					<div className="w-full md:w-1/2 flex flex-col bg-white overflow-hidden">
 						{/* Date Input */}
-						<div className="px-4 border-b flex-shrink-0" style={{ paddingBottom: "8px"}}>
-							<label className="block text-sm font-medium text-gray-700 mb-2">
+						<div className="px-4 border-b flex flex-row" style={{ paddingBottom: "8px"}}>
+							{/* <label className="block text-sm font-medium text-gray-700 mb-2">
 								Photo Date
-							</label>
+							</label> */}
 							<Input
 								type="date"
 								value={currentPhoto.date || ''}
