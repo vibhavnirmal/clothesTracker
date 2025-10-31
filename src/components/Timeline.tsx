@@ -743,12 +743,13 @@ export function Timeline({ clothes, wearRecords, washRecords, onAddToDate, onBul
                             <ImageWithFallback
                               src={item.image}
                               alt={item.name}
-                              className="h-12 w-12 rounded-md object-cover flex-shrink-0"
+                              className="h-12 w-12 object-cover flex-shrink-0"
+                              style={{ borderTopLeftRadius: '0.375rem', borderBottomLeftRadius: '0.375rem', border: '1px solid #D1D5DB' }}
                             />
                           ) : (
                             <div
-                              className="h-12 w-12 rounded-md flex items-center justify-center text-xs font-semibold flex-shrink-0"
-                              style={{ backgroundColor: item.color || '#9CA3AF' }}
+                              className="h-12 w-12 flex items-center justify-center text-xs font-semibold flex-shrink-0"
+                              style={{ backgroundColor: item.color || '#9CA3AF', border: '1px solid #D1D5DB', borderTopLeftRadius: '0.375rem', borderBottomLeftRadius: '0.375rem' }}
                             >
                               {item.name.split(' ').map(word => word[0]).join('').slice(0, 2).toUpperCase()}
                             </div>
@@ -784,6 +785,7 @@ export function Timeline({ clothes, wearRecords, washRecords, onAddToDate, onBul
                               src={item.image}
                               alt={item.name}
                               className="h-12 w-12 rounded-md object-cover flex-shrink-0"
+                              style={{ borderTopLeftRadius: '0.375rem', borderBottomLeftRadius: '0.375rem', border: '1px solid #D1D5DB' }}
                             />
                           ) : (
                             <div className="h-12 w-12 rounded-md flex items-center justify-center text-xs font-semibold flex-shrink-0">
