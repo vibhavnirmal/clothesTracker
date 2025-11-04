@@ -831,30 +831,72 @@ export default function App() {
 
 	const handleAddToDate = useCallback(async (clothesIds: string[], date: string) => {
 		resetActionError();
+		const existingForDate = new Set(wearRecords.filter(record => record.date === date).map(record => record.clothesId));
+		const uniqueIds = clothesIds.filter(id => !existingForDate.has(id));
+		if (uniqueIds.length === 0) {
+			toast.info('Those clothes are already logged for that day.');
+			return;
+		}
+
 		try {
-			const { clothes: updatedClothes, wearRecords: updatedWearRecords } = await recordWear(clothesIds, date);
+			const { clothes: updatedClothes, wearRecords: updatedWearRecords } = await recordWear(uniqueIds, date);
 			setClothes(updatedClothes);
 			setWearRecords(updatedWearRecords);
-			toast.success(`Added ${clothesIds.length} item${clothesIds.length === 1 ? '' : 's'} to ${date}`);
+
+			const skipped = clothesIds.length - uniqueIds.length;
+			const addedCount = uniqueIds.length;
+			let message = `Added ${addedCount} item${addedCount === 1 ? '' : 's'} to ${date}`;
+			if (skipped > 0) {
+				message += ` (skipped ${skipped} already logged)`;
+			}
+			toast.success(message);
 		} catch (err) {
 			const message = err instanceof Error ? err.message : 'Failed to add clothes to date';
 			setActionError(message);
 			toast.error(message);
 			throw err;
 		}
-	}, [resetActionError]);
+	}, [resetActionError, wearRecords]);
+
+	const handleRemoveWearFromDate = useCallback(async (clothesId: string, date: string) => {
+		resetActionError();
+		const removedItem = clothes.find(item => item.id === clothesId);
+		try {
+			const { clothes: updatedClothes, wearRecords: updatedWearRecords } = await undoWear(clothesId, date);
+			setClothes(updatedClothes);
+			setWearRecords(updatedWearRecords);
+			if (date === today) {
+				setSelectedForWearing(prev => {
+					if (!prev.has(clothesId)) {
+						return prev;
+					}
+					const next = new Set(prev);
+					next.delete(clothesId);
+					return next;
+				});
+			}
+			const label = removedItem?.name ?? 'Wear record';
+			toast.success(`Removed ${label} from ${date}.`);
+		} catch (err) {
+			const message = err instanceof Error ? err.message : 'Failed to remove wear record';
+			setActionError(message);
+			toast.error(message);
+			throw err;
+		}
+	}, [resetActionError, clothes, today]);
 
 	const handleBulkPhotoSubmit = useCallback(async (photos: Array<{ date: string | null; selectedClothesIds: string[] }>) => {
 		resetActionError();
-		let successCount = 0;
-		
+		let outfitsRecorded = 0;
+		let itemsSkipped = 0;
+
 		try {
 			// Group photos by date
 			const photosByDate = new Map<string, string[]>();
 			
 			photos.forEach(photo => {
 				if (!photo.date) return;
-				
+
 				const existing = photosByDate.get(photo.date);
 				if (existing) {
 					existing.push(...photo.selectedClothesIds);
@@ -863,26 +905,44 @@ export default function App() {
 				}
 			});
 
+			let currentWearRecords = wearRecords;
+
 			// Record wear for each date
 			for (const [date, clothesIds] of photosByDate.entries()) {
-				// Remove duplicates
 				const uniqueClothesIds = Array.from(new Set(clothesIds));
-				
-				const { clothes: updatedClothes, wearRecords: updatedWearRecords } = await recordWear(uniqueClothesIds, date);
+				const existingForDate = new Set(currentWearRecords.filter(record => record.date === date).map(record => record.clothesId));
+				const idsToRecord = uniqueClothesIds.filter(id => !existingForDate.has(id));
+				const skippedForDate = uniqueClothesIds.length - idsToRecord.length;
+				itemsSkipped += skippedForDate;
+
+				if (idsToRecord.length === 0) {
+					continue;
+				}
+
+				const { clothes: updatedClothes, wearRecords: updatedWearRecords } = await recordWear(idsToRecord, date);
 				setClothes(updatedClothes);
 				setWearRecords(updatedWearRecords);
-				successCount++;
+				currentWearRecords = updatedWearRecords;
+				outfitsRecorded += 1;
 			}
 
-			toast.success(`Successfully recorded ${successCount} outfit${successCount === 1 ? '' : 's'} from photos!`);
-			setActiveTab('timeline');
+			if (outfitsRecorded > 0) {
+				let message = `Recorded ${outfitsRecorded} outfit${outfitsRecorded === 1 ? '' : 's'} from photos`;
+				if (itemsSkipped > 0) {
+					message += ` (skipped ${itemsSkipped} already logged item${itemsSkipped === 1 ? '' : 's'})`;
+				}
+				toast.success(message + '!');
+				setActiveTab('timeline');
+			} else {
+				toast.info('All selected items were already logged for those dates.');
+			}
 		} catch (err) {
 			const message = err instanceof Error ? err.message : 'Failed to submit photos';
 			setActionError(message);
 			toast.error(message);
 			throw err;
 		}
-	}, [resetActionError]);
+	}, [resetActionError, wearRecords]);
 
 	const renderTabContent = () => {
 		switch (activeTab) {
@@ -1136,6 +1196,7 @@ export default function App() {
 							wearRecords={wearRecords}
 							washRecords={washRecords}
 							onAddToDate={handleAddToDate}
+							onRemoveWear={handleRemoveWearFromDate}
 							onBulkPhotoSubmit={handleBulkPhotoSubmit}
 							onCreateClothes={createAndStoreClothes}
 							typeOptions={clothingTypes}

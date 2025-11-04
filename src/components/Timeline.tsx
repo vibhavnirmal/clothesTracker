@@ -1,5 +1,5 @@
-import React, { useCallback, useMemo, useState } from 'react';
-import { Calendar, Shirt, Droplets, Filter, Plus, Upload } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Calendar, Shirt, Droplets, Filter, Plus, Upload, Trash2 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import type { AddClothesPayload, ClothesItem, WearRecord, WashRecord } from '../types';
@@ -18,6 +18,7 @@ interface TimelineProps {
   onAddToDate: (clothesIds: string[], date: string) => Promise<void>;
   onBulkPhotoSubmit: (photos: Array<{ date: string | null; selectedClothesIds: string[] }>) => Promise<void>;
   onCreateClothes: (payload: AddClothesPayload) => Promise<ClothesItem>;
+  onRemoveWear: (clothesId: string, date: string) => Promise<void>;
   typeOptions: string[];
   materialOptions: string[];
   madeInOptions: string[];
@@ -36,7 +37,7 @@ interface TimelineDay {
   wash: ClothesItem[];
 }
 
-export function Timeline({ clothes, wearRecords, washRecords, onAddToDate, onBulkPhotoSubmit, onCreateClothes, typeOptions, materialOptions, madeInOptions, onManageTypes }: TimelineProps) {
+export function Timeline({ clothes, wearRecords, washRecords, onAddToDate, onBulkPhotoSubmit, onCreateClothes, onRemoveWear, typeOptions, materialOptions, madeInOptions, onManageTypes }: TimelineProps) {
   const [filterType, setFilterType] = useState<string>('all');
   const [filterColor, setFilterColor] = useState<string>('all');
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
@@ -45,6 +46,8 @@ export function Timeline({ clothes, wearRecords, washRecords, onAddToDate, onBul
   const [touchEnd, setTouchEnd] = useState<number | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showBulkUpload, setShowBulkUpload] = useState(false);
+  const [pendingRemoval, setPendingRemoval] = useState<{ item: ClothesItem; date: string } | null>(null);
+  const [isRemovingWear, setIsRemovingWear] = useState(false);
 
   // Minimum swipe distance (in px) to trigger month change
   const minSwipeDistance = 50;
@@ -310,6 +313,52 @@ export function Timeline({ clothes, wearRecords, washRecords, onAddToDate, onBul
     await onBulkPhotoSubmit(photos);
     setShowBulkUpload(false);
   }, [onBulkPhotoSubmit]);
+
+  const handleRequestWearRemoval = useCallback((item: ClothesItem, date: string) => {
+    setPendingRemoval({ item, date });
+  }, []);
+
+  const handleCancelWearRemoval = useCallback(() => {
+    if (isRemovingWear) {
+      return;
+    }
+    setPendingRemoval(null);
+  }, [isRemovingWear]);
+
+  const handleConfirmWearRemoval = useCallback(async () => {
+    if (!pendingRemoval) {
+      return;
+    }
+
+    setIsRemovingWear(true);
+    try {
+      await onRemoveWear(pendingRemoval.item.id, pendingRemoval.date);
+      setPendingRemoval(null);
+    } catch (error) {
+      console.error('Failed to remove wear record', error);
+      alert('Failed to remove this wear record. Please try again.');
+    } finally {
+      setIsRemovingWear(false);
+    }
+  }, [pendingRemoval, onRemoveWear]);
+
+  useEffect(() => {
+    if (!pendingRemoval) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        if (!isRemovingWear) {
+          setPendingRemoval(null);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [pendingRemoval, isRemovingWear]);
 
   if (showBulkUpload) {
     return (
@@ -736,36 +785,61 @@ export function Timeline({ clothes, wearRecords, washRecords, onAddToDate, onBul
                     <p className="text-xs font-semibold uppercase tracking-wide">Wore ({selectedDayData.wear.length})</p>
                   </div>
                   <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))' }}>
-                    {selectedDayData.wear.map(({ item, count }) => (
-                      <div key={item.id} className="rounded-lg border border-blue-100 bg-blue-50/70 p-3">
-                        <div className="flex items-center gap-3">
-                          {item.image ? (
-                            <ImageWithFallback
-                              src={item.image}
-                              alt={item.name}
-                              className="h-12 w-12 object-cover flex-shrink-0"
-                              style={{ borderTopLeftRadius: '0.375rem', borderBottomLeftRadius: '0.375rem', border: '1px solid #D1D5DB' }}
-                            />
-                          ) : (
-                            <div
-                              className="h-12 w-12 flex items-center justify-center text-xs font-semibold flex-shrink-0"
-                              style={{ backgroundColor: item.color || '#9CA3AF', border: '1px solid #D1D5DB', borderTopLeftRadius: '0.375rem', borderBottomLeftRadius: '0.375rem' }}
-                            >
-                              {item.name.split(' ').map(word => word[0]).join('').slice(0, 2).toUpperCase()}
-                            </div>
-                          )}
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-gray-900 truncate">{item.name}</p>
-                            <p className="text-xs text-gray-500">{item.type} • {count}×</p>
-                            {item.wearsSinceWash >= NEEDS_WASH_THRESHOLD && (
-                              <span className="inline-block mt-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">
-                                Needs wash
-                              </span>
+                    {selectedDayData.wear.map(({ item, count }) => {
+                      const dateForRemoval = selectedDate!;
+                      const isPendingRemoval = pendingRemoval?.item.id === item.id && pendingRemoval.date === dateForRemoval;
+
+                      return (
+                        <div key={item.id} className="rounded-lg border border-blue-100 bg-blue-50/70 p-3">
+                          <div className="flex items-start gap-3">
+                            {item.image ? (
+                              <ImageWithFallback
+                                src={item.image}
+                                alt={item.name}
+                                className="h-12 w-12 object-cover flex-shrink-0"
+                                style={{ borderTopLeftRadius: '0.375rem', borderBottomLeftRadius: '0.375rem', border: '1px solid #D1D5DB' }}
+                              />
+                            ) : (
+                              <div
+                                className="h-12 w-12 flex items-center justify-center text-xs font-semibold flex-shrink-0"
+                                style={{ backgroundColor: item.color || '#9CA3AF', border: '1px solid #D1D5DB', borderTopLeftRadius: '0.375rem', borderBottomLeftRadius: '0.375rem' }}
+                              >
+                                {item.name.split(' ').map(word => word[0]).join('').slice(0, 2).toUpperCase()}
+                              </div>
                             )}
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <p className="text-sm font-medium text-gray-900 truncate">{item.name}</p>
+                                  <p className="text-xs text-gray-500">
+                                    {item.type}
+                                    {count > 1 ? ` • ${count}×` : ''}
+                                  </p>
+                                </div>
+                                <Button
+                                  type="button"
+                                  variant="destructive"
+                                  className="flex flex-col items-center justify-center gap-1"
+                                  style={{height: "max-content", paddingTop: "6px", paddingBottom: "6px"  }}
+                                  onClick={() => handleRequestWearRemoval(item, dateForRemoval)}
+                                  disabled={isRemovingWear && isPendingRemoval}
+                                  aria-label={`Remove ${item.name} from ${formatDate(dateForRemoval)}`}
+                                  title={`Remove ${item.name} from ${formatDate(dateForRemoval)}`}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                  <span className="text-xs font-medium">Remove</span>
+                                </Button>
+                              </div>
+                              {item.wearsSinceWash >= NEEDS_WASH_THRESHOLD && (
+                                <span className="inline-block mt-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+                                  Needs wash
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </section>
               )}
@@ -850,7 +924,55 @@ export function Timeline({ clothes, wearRecords, washRecords, onAddToDate, onBul
           date={selectedDate}
           onAdd={onAddToDate}
           onClose={() => setShowAddModal(false)}
+          disabledClothesIds={selectedDayData?.wear.map(({ item }) => item.id) ?? []}
         />
+      )}
+
+      {pendingRemoval && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={handleCancelWearRemoval}
+        >
+          <div
+            className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="remove-wear-title"
+            aria-describedby="remove-wear-description"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h3 id="remove-wear-title" className="text-lg font-semibold text-gray-900">Remove from timeline?</h3>
+            <p id="remove-wear-description" className="mt-2 text-sm text-gray-600">
+              Remove <span className="font-semibold text-gray-900">{pendingRemoval.item.name}</span> from{' '}
+              {formatIsoDate(pendingRemoval.date, {
+                month: 'long',
+                day: 'numeric',
+                year: 'numeric',
+              }, 'en-US')}?
+            </p>
+            <p className="mt-3 text-xs text-gray-500">
+              This removes the wear record for that date and updates your stats accordingly.
+            </p>
+            <div className="mt-6 flex justify-end gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleCancelWearRemoval}
+                disabled={isRemovingWear}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={handleConfirmWearRemoval}
+                disabled={isRemovingWear}
+              >
+                {isRemovingWear ? 'Removing...' : 'Remove'}
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
