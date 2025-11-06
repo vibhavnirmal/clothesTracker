@@ -106,7 +106,7 @@ export const AVAILABLE_ICONS = [
  */
 export function getIconPath(iconName: string | null | undefined): string | null {
   if (!iconName) return null;
-  return `/src/icons/${iconName}`;
+  return `/icons/${iconName}`;
 }
 
 /**
