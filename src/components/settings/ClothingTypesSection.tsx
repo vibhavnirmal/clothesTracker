@@ -5,10 +5,15 @@ import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { toast } from '../ui/sonner';
 import { createClothingType, deleteClothingType, updateClothingType } from '../../lib/api';
+import type { ClothingType } from '../../types';
+import { getIconDisplayName, getIconPath } from '../../lib/icons';
+import { IconPickerModal } from '../IconPickerModal';
+
+const NO_ICON_VALUE = '__no_icon__';
 
 export interface ClothingTypesSectionProps {
-  types: string[];
-  onTypesUpdated: (types: string[]) => void;
+  types: ClothingType[];
+  onTypesUpdated: (types: ClothingType[]) => void;
   onBackToOverview: () => void;
   typeUsage: Record<string, number>;
 }
@@ -20,12 +25,15 @@ export function ClothingTypesSection({
   typeUsage,
 }: ClothingTypesSectionProps) {
   const [newType, setNewType] = useState('');
+  const [newIcon, setNewIcon] = useState<string>(NO_ICON_VALUE);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [deletingType, setDeletingType] = useState<string | null>(null);
   const [editingType, setEditingType] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
+  const [editIcon, setEditIcon] = useState<string>(NO_ICON_VALUE);
+  const [showIconPicker, setShowIconPicker] = useState<'add' | 'edit' | null>(null);
 
-  const sortedTypes = useMemo(() => [...types].sort((a, b) => a.localeCompare(b)), [types]);
+  const sortedTypes = useMemo(() => [...types].sort((a, b) => a.name.localeCompare(b.name)), [types]);
 
   const handleDeleteType = async (typeName: string) => {
     const usageCount = typeUsage[typeName] ?? 0;
@@ -67,9 +75,10 @@ export function ClothingTypesSection({
 
     setIsSubmitting(true);
     try {
-      const { types: updated } = await createClothingType(trimmed);
+      const { types: updated } = await createClothingType(trimmed, newIcon === NO_ICON_VALUE ? null : newIcon);
       onTypesUpdated(updated);
       setNewType('');
+      setNewIcon(NO_ICON_VALUE);
       toast.success(`Added "${trimmed}" to clothing types.`);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to add clothing type';
@@ -79,14 +88,16 @@ export function ClothingTypesSection({
     }
   };
 
-  const handleStartEdit = (typeName: string) => {
-    setEditingType(typeName);
-    setEditValue(typeName);
+  const handleStartEdit = (typeObj: ClothingType) => {
+    setEditingType(typeObj.name);
+    setEditValue(typeObj.name);
+    setEditIcon(typeObj.icon || NO_ICON_VALUE);
   };
 
   const handleCancelEdit = () => {
     setEditingType(null);
     setEditValue('');
+    setEditIcon(NO_ICON_VALUE);
   };
 
   const handleSaveEdit = async (oldName: string) => {
@@ -97,13 +108,13 @@ export function ClothingTypesSection({
       return;
     }
 
-    if (trimmed === oldName) {
+    if (trimmed === oldName && editIcon === (types.find(t => t.name === oldName)?.icon || NO_ICON_VALUE)) {
       handleCancelEdit();
       return;
     }
 
     try {
-      const { types: updated } = await updateClothingType(oldName, trimmed);
+      const { types: updated } = await updateClothingType(oldName, trimmed, editIcon === NO_ICON_VALUE ? null : editIcon);
       onTypesUpdated(updated);
       handleCancelEdit();
       toast.success(`Updated "${oldName}" to "${trimmed}".`);
@@ -161,6 +172,26 @@ export function ClothingTypesSection({
               />
             </div>
           </div>
+          <div className="space-y-1">
+            <Label className="mb-2" htmlFor="new-icon">
+              Icon (optional)
+            </Label>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full justify-start"
+              onClick={() => setShowIconPicker('add')}
+            >
+              {newIcon && newIcon !== NO_ICON_VALUE ? (
+                <div className="flex items-center gap-2">
+                  <img src={getIconPath(newIcon) || ''} alt="" className="w-4 h-4" />
+                  <span>{getIconDisplayName(newIcon)}</span>
+                </div>
+              ) : (
+                <span className="text-muted-foreground">Select an icon</span>
+              )}
+            </Button>
+          </div>
           <Button
             type="submit"
             disabled={isSubmitting || newType.trim().length === 0}
@@ -179,27 +210,28 @@ export function ClothingTypesSection({
         ) : (
           <ul className="mt-3 grid gap-2 sm:grid-cols-2">
             {sortedTypes.map(type => {
-              const usageCount = typeUsage[type] ?? 0;
-              const isDeleting = deletingType === type;
-              const isEditing = editingType === type;
+              const usageCount = typeUsage[type.name] ?? 0;
+              const isDeleting = deletingType === type.name;
+              const isEditing = editingType === type.name;
 
               return (
                 <li
-                  key={type}
+                  key={type.name}
                   className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-sm text-gray-700"
                 >
                   <div className="flex items-center justify-between gap-3">
                     {isEditing ? (
-                      <div className="flex items-center gap-2 flex-1">
+                      <div className="flex flex-col gap-2 flex-1">
                         <Input
                           value={editValue}
                           onChange={(e) => setEditValue(e.target.value)}
                           maxLength={40}
                           className="h-8"
+                          placeholder="Type name"
                           autoFocus
                           onKeyDown={(e) => {
                             if (e.key === 'Enter') {
-                              void handleSaveEdit(type);
+                              void handleSaveEdit(type.name);
                             } else if (e.key === 'Escape') {
                               handleCancelEdit();
                             }
@@ -207,43 +239,64 @@ export function ClothingTypesSection({
                         />
                         <Button
                           type="button"
-                          variant="ghost"
+                          variant="outline"
                           size="sm"
-                          onClick={() => void handleSaveEdit(type)}
+                          className="justify-start"
+                          onClick={() => setShowIconPicker('edit')}
                         >
-                          <Check className="h-4 w-4 text-green-600" />
+                          {editIcon && editIcon !== NO_ICON_VALUE ? (
+                            <div className="flex items-center gap-2">
+                              <img src={getIconPath(editIcon) || ''} alt="" className="w-4 h-4" />
+                              <span>{getIconDisplayName(editIcon)}</span>
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground text-xs">Select icon</span>
+                          )}
                         </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={handleCancelEdit}
-                        >
-                          <X className="h-4 w-4 text-red-600" />
-                        </Button>
+                        <div className="flex gap-2">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => void handleSaveEdit(type.name)}
+                          >
+                            <Check className="h-4 w-4 text-green-600" />
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={handleCancelEdit}
+                          >
+                            <X className="h-4 w-4 text-red-600" />
+                          </Button>
+                        </div>
                       </div>
                     ) : (
                       <>
-                        <span className="truncate" title={type}>
-                          {type}
-                        </span>
-                        <div className="flex items-center gap-2">
-                          {usageCount === 0 && (
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleStartEdit(type)}
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
+                        <div className="flex items-center gap-2 flex-1">
+                          {type.icon && (
+                            <img src={getIconPath(type.icon) || ''} alt="" className="w-5 h-5" />
                           )}
+                          <span className="truncate" title={type.name}>
+                            {type.name}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleStartEdit(type)}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
                           {usageCount === 0 ? (
                             <Button
                               type="button"
                               variant="destructive"
                               size="sm"
-                              onClick={() => void handleDeleteType(type)}
+                              onClick={() => void handleDeleteType(type.name)}
                               disabled={isDeleting}
                             >
                               <Trash2 className="h-4 w-4" />
@@ -267,6 +320,22 @@ export function ClothingTypesSection({
           </ul>
         )}
       </section>
+
+      {/* Icon Picker Modals */}
+      <IconPickerModal
+        isOpen={showIconPicker === 'add'}
+        onClose={() => setShowIconPicker(null)}
+        onSelect={(icon) => setNewIcon(icon || NO_ICON_VALUE)}
+        currentIcon={newIcon !== NO_ICON_VALUE ? newIcon : null}
+        clothingTypeName={newType.trim() || 'New Clothing Type'}
+      />
+      <IconPickerModal
+        isOpen={showIconPicker === 'edit'}
+        onClose={() => setShowIconPicker(null)}
+        onSelect={(icon) => setEditIcon(icon || NO_ICON_VALUE)}
+        currentIcon={editIcon !== NO_ICON_VALUE ? editIcon : null}
+        clothingTypeName={editingType || undefined}
+      />
     </div>
   );
 }

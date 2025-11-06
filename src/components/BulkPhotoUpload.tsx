@@ -2,7 +2,7 @@ import React, { useCallback, useState, useRef, useEffect } from 'react';
 import { Upload, Image as ImageIcon, X, Calendar, AlertCircle } from 'lucide-react';
 import { Button } from './ui/button';
 import { PhotoReviewModal } from './PhotoReviewModal';
-import type { ClothesItem } from '../types';
+import type { ClothesItem, ClothingType } from '../types';
 import type { AddClothesPayload } from '../types';
 import { AddClothesModal } from './AddClothesModal';
 import exifr from 'exifr';
@@ -19,7 +19,7 @@ interface BulkPhotoUploadProps {
 	clothes: ClothesItem[];
 	onSubmit: (photos: PhotoData[]) => Promise<void>;
 	onAddClothes: (payload: AddClothesPayload) => Promise<ClothesItem>;
-	typeOptions: string[];
+	typeOptions: ClothingType[];
 	materialOptions: string[];
 	madeInOptions?: string[];
 	onManageTypes?: () => void;

@@ -2,9 +2,8 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Calendar, Shirt, Droplets, Filter, Plus, Upload, Trash2 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import type { AddClothesPayload, ClothesItem, WearRecord, WashRecord } from '../types';
-import { getColorName } from '../lib/colors';
-import { addDays, compareIsoDatesDesc, formatIsoDate, parseIsoDateToLocal, startOfToday } from '../lib/date';
+import type { AddClothesPayload, ClothesItem, WearRecord, WashRecord, ClothingType } from '../types';
+import { addDays, compareIsoDatesDesc, formatDateKey, formatIsoDate, parseIsoDateToLocal, startOfToday } from '../lib/date';
 import { ImageWithFallback } from './ImageWithFallback';
 import { AddToDateModal } from './AddToDateModal';
 import { BulkPhotoUpload } from './BulkPhotoUpload';
@@ -16,10 +15,12 @@ interface TimelineProps {
   wearRecords: WearRecord[];
   washRecords: WashRecord[];
   onAddToDate: (clothesIds: string[], date: string) => Promise<void>;
+  onAddWashToDate: (clothesIds: string[], date: string) => Promise<void>;
   onBulkPhotoSubmit: (photos: Array<{ date: string | null; selectedClothesIds: string[] }>) => Promise<void>;
   onCreateClothes: (payload: AddClothesPayload) => Promise<ClothesItem>;
   onRemoveWear: (clothesId: string, date: string) => Promise<void>;
-  typeOptions: string[];
+  onRemoveWash: (clothesId: string, date: string) => Promise<void>;
+  typeOptions: ClothingType[];
   materialOptions: string[];
   madeInOptions: string[];
   onManageTypes?: () => void;
@@ -37,7 +38,7 @@ interface TimelineDay {
   wash: ClothesItem[];
 }
 
-export function Timeline({ clothes, wearRecords, washRecords, onAddToDate, onBulkPhotoSubmit, onCreateClothes, onRemoveWear, typeOptions, materialOptions, madeInOptions, onManageTypes }: TimelineProps) {
+export function Timeline({ clothes, wearRecords, washRecords, onAddToDate, onAddWashToDate, onBulkPhotoSubmit, onCreateClothes, onRemoveWear, onRemoveWash, typeOptions, materialOptions, madeInOptions, onManageTypes }: TimelineProps) {
   const [filterType, setFilterType] = useState<string>('all');
   const [filterColor, setFilterColor] = useState<string>('all');
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
@@ -46,8 +47,10 @@ export function Timeline({ clothes, wearRecords, washRecords, onAddToDate, onBul
   const [touchEnd, setTouchEnd] = useState<number | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showBulkUpload, setShowBulkUpload] = useState(false);
-  const [pendingRemoval, setPendingRemoval] = useState<{ item: ClothesItem; date: string } | null>(null);
+  const [pendingWearRemoval, setPendingWearRemoval] = useState<{ item: ClothesItem; date: string } | null>(null);
   const [isRemovingWear, setIsRemovingWear] = useState(false);
+  const [pendingWashRemoval, setPendingWashRemoval] = useState<{ item: ClothesItem; date: string } | null>(null);
+  const [isRemovingWash, setIsRemovingWash] = useState(false);
 
   // Minimum swipe distance (in px) to trigger month change
   const minSwipeDistance = 50;
@@ -63,12 +66,27 @@ export function Timeline({ clothes, wearRecords, washRecords, onAddToDate, onBul
       return true;
     };
 
+    // Get the current month's date range
+    const startOfMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1);
+    const endOfMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0);
+    const startDateStr = formatDateKey(startOfMonth);
+    const endDateStr = formatDateKey(endOfMonth);
+
     const clothesById = new Map(clothes.map(item => [item.id, item]));
     const filteredClothes = clothes.filter(matchesFilters);
     const filteredClothesIds = new Set(filteredClothes.map(item => item.id));
 
-    const filteredWearRecords = wearRecords.filter(record => filteredClothesIds.has(record.clothesId));
-    const filteredWashRecords = washRecords.filter(record => filteredClothesIds.has(record.clothesId));
+    // Filter records by both clothes filter and current month
+    const filteredWearRecords = wearRecords.filter(record => 
+      filteredClothesIds.has(record.clothesId) && 
+      record.date >= startDateStr && 
+      record.date <= endDateStr
+    );
+    const filteredWashRecords = washRecords.filter(record => 
+      filteredClothesIds.has(record.clothesId) &&
+      record.date >= startDateStr && 
+      record.date <= endDateStr
+    );
 
     const wearCountMap = new Map<string, number>();
     filteredWearRecords.forEach(record => {
@@ -147,7 +165,7 @@ export function Timeline({ clothes, wearRecords, washRecords, onAddToDate, onBul
         needsWash: ClothesItem[];
       },
     };
-  }, [clothes, wearRecords, washRecords, filterType, filterColor]);
+  }, [clothes, wearRecords, washRecords, filterType, filterColor, currentMonth]);
 
   const formatDate = (dateString: string) => {
     const date = parseIsoDateToLocal(dateString);
@@ -231,13 +249,6 @@ export function Timeline({ clothes, wearRecords, washRecords, onAddToDate, onBul
     return new Date(year, month, 1).getDay();
   };
 
-  const formatDateKey = (date: Date) => {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  };
-
   const calendarData = useMemo(() => {
     const activityMap = new Map<string, { wearCount: number; washCount: number }>();
 
@@ -309,41 +320,85 @@ export function Timeline({ clothes, wearRecords, washRecords, onAddToDate, onBul
     return timeline.find(day => day.date === selectedDate);
   }, [selectedDate, timeline]);
 
+  const wearIdsForSelectedDate = useMemo(() => {
+    if (!selectedDate) return [];
+    const ids = wearRecords
+      .filter(record => record.date === selectedDate)
+      .map(record => record.clothesId);
+    return Array.from(new Set(ids));
+  }, [selectedDate, wearRecords]);
+
+  const washIdsForSelectedDate = useMemo(() => {
+    if (!selectedDate) return [];
+    const ids = washRecords
+      .filter(record => record.date === selectedDate)
+      .map(record => record.clothesId);
+    return Array.from(new Set(ids));
+  }, [selectedDate, washRecords]);
+
   const handleBulkUploadSubmit = useCallback(async (photos: Array<{ date: string | null; selectedClothesIds: string[] }>) => {
     await onBulkPhotoSubmit(photos);
     setShowBulkUpload(false);
   }, [onBulkPhotoSubmit]);
 
   const handleRequestWearRemoval = useCallback((item: ClothesItem, date: string) => {
-    setPendingRemoval({ item, date });
+    setPendingWearRemoval({ item, date });
   }, []);
 
   const handleCancelWearRemoval = useCallback(() => {
     if (isRemovingWear) {
       return;
     }
-    setPendingRemoval(null);
+    setPendingWearRemoval(null);
   }, [isRemovingWear]);
 
   const handleConfirmWearRemoval = useCallback(async () => {
-    if (!pendingRemoval) {
+    if (!pendingWearRemoval) {
       return;
     }
 
     setIsRemovingWear(true);
     try {
-      await onRemoveWear(pendingRemoval.item.id, pendingRemoval.date);
-      setPendingRemoval(null);
+      await onRemoveWear(pendingWearRemoval.item.id, pendingWearRemoval.date);
+      setPendingWearRemoval(null);
     } catch (error) {
       console.error('Failed to remove wear record', error);
       alert('Failed to remove this wear record. Please try again.');
     } finally {
       setIsRemovingWear(false);
     }
-  }, [pendingRemoval, onRemoveWear]);
+  }, [pendingWearRemoval, onRemoveWear]);
+
+  const handleRequestWashRemoval = useCallback((item: ClothesItem, date: string) => {
+    setPendingWashRemoval({ item, date });
+  }, []);
+
+  const handleCancelWashRemoval = useCallback(() => {
+    if (isRemovingWash) {
+      return;
+    }
+    setPendingWashRemoval(null);
+  }, [isRemovingWash]);
+
+  const handleConfirmWashRemoval = useCallback(async () => {
+    if (!pendingWashRemoval) {
+      return;
+    }
+
+    setIsRemovingWash(true);
+    try {
+      await onRemoveWash(pendingWashRemoval.item.id, pendingWashRemoval.date);
+      setPendingWashRemoval(null);
+    } catch (error) {
+      console.error('Failed to remove wash record', error);
+      alert('Failed to remove this wash record. Please try again.');
+    } finally {
+      setIsRemovingWash(false);
+    }
+  }, [pendingWashRemoval, onRemoveWash]);
 
   useEffect(() => {
-    if (!pendingRemoval) {
+    if (!pendingWearRemoval) {
       return;
     }
 
@@ -351,14 +406,32 @@ export function Timeline({ clothes, wearRecords, washRecords, onAddToDate, onBul
       if (event.key === 'Escape') {
         event.preventDefault();
         if (!isRemovingWear) {
-          setPendingRemoval(null);
+          setPendingWearRemoval(null);
         }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [pendingRemoval, isRemovingWear]);
+  }, [pendingWearRemoval, isRemovingWear]);
+
+  useEffect(() => {
+    if (!pendingWashRemoval) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        if (!isRemovingWash) {
+          setPendingWashRemoval(null);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [pendingWashRemoval, isRemovingWash]);
 
   if (showBulkUpload) {
     return (
@@ -398,16 +471,21 @@ export function Timeline({ clothes, wearRecords, washRecords, onAddToDate, onBul
             <Calendar className="w-5 h-5 text-blue-500" />
             <h1 className="text-lg sm:text-xl">Timeline</h1>
           </div> */}
-          <div className="flex items-center gap-3 sm:gap-4 text-xs sm:text-sm">
-            <div className="flex items-center gap-2 text-blue-600">
-              <Shirt className="w-3 h-3 sm:w-4 sm:h-4" />
-              <span className="font-medium">{insights.totalWearCount}</span>
-              <span className="text-gray-500 hidden sm:inline">worn</span>
+          <div className="flex flex-row gap-1 justify-between">
+            <div className="text-xs text-gray-500">
+              {currentMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
             </div>
-            <div className="flex items-center gap-2 text-emerald-600">
-              <Droplets className="w-3 h-3 sm:w-4 sm:h-4" />
-              <span className="font-medium">{insights.totalWashCount}</span>
-              <span className="text-gray-500 hidden sm:inline">washed</span>
+            <div className="flex items-center gap-3 sm:gap-4 text-xs sm:text-sm">
+              <div className="flex items-center gap-2 text-blue-600">
+                <Shirt className="w-3 h-3 sm:w-4 sm:h-4" />
+                <span className="font-medium">{insights.totalWearCount}</span>
+                <span className="text-gray-500 hidden sm:inline">worn</span>
+              </div>
+              <div className="flex items-center gap-2 text-emerald-600">
+                <Droplets className="w-3 h-3 sm:w-4 sm:h-4" />
+                <span className="font-medium">{insights.totalWashCount}</span>
+                <span className="text-gray-500 hidden sm:inline">washed</span>
+              </div>
             </div>
           </div>
           <Button
@@ -787,7 +865,7 @@ export function Timeline({ clothes, wearRecords, washRecords, onAddToDate, onBul
                   <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))' }}>
                     {selectedDayData.wear.map(({ item, count }) => {
                       const dateForRemoval = selectedDate!;
-                      const isPendingRemoval = pendingRemoval?.item.id === item.id && pendingRemoval.date === dateForRemoval;
+                      const isPendingWearRemoval = pendingWearRemoval?.item.id === item.id && pendingWearRemoval.date === dateForRemoval;
 
                       return (
                         <div key={item.id} className="rounded-lg border border-blue-100 bg-blue-50/70 p-3">
@@ -822,7 +900,7 @@ export function Timeline({ clothes, wearRecords, washRecords, onAddToDate, onBul
                                   className="flex flex-col items-center justify-center gap-1"
                                   style={{height: "max-content", paddingTop: "6px", paddingBottom: "6px"  }}
                                   onClick={() => handleRequestWearRemoval(item, dateForRemoval)}
-                                  disabled={isRemovingWear && isPendingRemoval}
+                                  disabled={isRemovingWear && isPendingWearRemoval}
                                   aria-label={`Remove ${item.name} from ${formatDate(dateForRemoval)}`}
                                   title={`Remove ${item.name} from ${formatDate(dateForRemoval)}`}
                                 >
@@ -851,28 +929,53 @@ export function Timeline({ clothes, wearRecords, washRecords, onAddToDate, onBul
                     <p className="text-xs font-semibold uppercase tracking-wide">Washed ({selectedDayData.wash.length})</p>
                   </div>
                   <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))' }}>
-                    {selectedDayData.wash.map(item => (
-                      <div key={item.id} className="rounded-lg border border-emerald-100 bg-emerald-50/70 p-3">
-                        <div className="flex items-center gap-3">
-                          {item.image ? (
-                            <ImageWithFallback
-                              src={item.image}
-                              alt={item.name}
-                              className="h-12 w-12 rounded-md object-cover flex-shrink-0"
-                              style={{ borderTopLeftRadius: '0.375rem', borderBottomLeftRadius: '0.375rem', border: '1px solid #D1D5DB' }}
-                            />
-                          ) : (
-                            <div className="h-12 w-12 rounded-md flex items-center justify-center text-xs font-semibold flex-shrink-0">
-                              {item.name.split(' ').map(word => word[0]).join('').slice(0, 2).toUpperCase()}
+                    {selectedDayData.wash.map(item => {
+                      const dateForRemoval = selectedDate!;
+                      const isPendingWash = pendingWashRemoval?.item.id === item.id && pendingWashRemoval.date === dateForRemoval;
+
+                      return (
+                        <div key={item.id} className="rounded-lg border border-emerald-100 bg-emerald-50/70 p-3">
+                          <div className="flex items-start gap-3">
+                            {item.image ? (
+                              <ImageWithFallback
+                                src={item.image}
+                                alt={item.name}
+                                className="h-12 w-12 rounded-md object-cover flex-shrink-0"
+                                style={{ borderTopLeftRadius: '0.375rem', borderBottomLeftRadius: '0.375rem', border: '1px solid #D1D5DB' }}
+                              />
+                            ) : (
+                              <div
+                                className="h-12 w-12 rounded-md flex items-center justify-center text-xs font-semibold flex-shrink-0"
+                                style={{ backgroundColor: item.color || '#D1FAE5', color: '#065F46', border: '1px solid #A7F3D0' }}
+                              >
+                                {item.name.split(' ').map(word => word[0]).join('').slice(0, 2).toUpperCase()}
+                              </div>
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <p className="text-sm font-medium text-gray-900 truncate">{item.name}</p>
+                                  <p className="text-xs text-gray-500">{item.type}</p>
+                                </div>
+                                <Button
+                                  type="button"
+                                  variant="destructive"
+                                  className="flex flex-col items-center justify-center gap-1"
+                                  style={{ height: 'max-content', paddingTop: '6px', paddingBottom: '6px' }}
+                                  onClick={() => handleRequestWashRemoval(item, dateForRemoval)}
+                                  disabled={isRemovingWash && isPendingWash}
+                                  aria-label={`Remove wash for ${item.name} on ${formatDate(dateForRemoval)}`}
+                                  title={`Remove wash for ${item.name} on ${formatDate(dateForRemoval)}`}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                  <span className="text-xs font-medium">Remove</span>
+                                </Button>
+                              </div>
                             </div>
-                          )}
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-gray-900 truncate">{item.name}</p>
-                            <p className="text-xs text-gray-500">{item.type}</p>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </section>
               )}
@@ -922,13 +1025,15 @@ export function Timeline({ clothes, wearRecords, washRecords, onAddToDate, onBul
         <AddToDateModal
           clothes={clothes}
           date={selectedDate}
-          onAdd={onAddToDate}
+          onAddWear={onAddToDate}
+          onAddWash={onAddWashToDate}
           onClose={() => setShowAddModal(false)}
-          disabledClothesIds={selectedDayData?.wear.map(({ item }) => item.id) ?? []}
+          disabledWearClothesIds={wearIdsForSelectedDate}
+          disabledWashClothesIds={washIdsForSelectedDate}
         />
       )}
 
-      {pendingRemoval && (
+      {pendingWearRemoval && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
           onClick={handleCancelWearRemoval}
@@ -943,8 +1048,8 @@ export function Timeline({ clothes, wearRecords, washRecords, onAddToDate, onBul
           >
             <h3 id="remove-wear-title" className="text-lg font-semibold text-gray-900">Remove from timeline?</h3>
             <p id="remove-wear-description" className="mt-2 text-sm text-gray-600">
-              Remove <span className="font-semibold text-gray-900">{pendingRemoval.item.name}</span> from{' '}
-              {formatIsoDate(pendingRemoval.date, {
+              Remove <span className="font-semibold text-gray-900">{pendingWearRemoval.item.name}</span> from{' '}
+              {formatIsoDate(pendingWearRemoval.date, {
                 month: 'long',
                 day: 'numeric',
                 year: 'numeric',
@@ -969,6 +1074,53 @@ export function Timeline({ clothes, wearRecords, washRecords, onAddToDate, onBul
                 disabled={isRemovingWear}
               >
                 {isRemovingWear ? 'Removing...' : 'Remove'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pendingWashRemoval && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={handleCancelWashRemoval}
+        >
+          <div
+            className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="remove-wash-title"
+            aria-describedby="remove-wash-description"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h3 id="remove-wash-title" className="text-lg font-semibold text-gray-900">Remove wash record?</h3>
+            <p id="remove-wash-description" className="mt-2 text-sm text-gray-600">
+              Remove wash record for <span className="font-semibold text-gray-900">{pendingWashRemoval.item.name}</span> on{' '}
+              {formatIsoDate(pendingWashRemoval.date, {
+                month: 'long',
+                day: 'numeric',
+                year: 'numeric',
+              }, 'en-US')}?
+            </p>
+            <p className="mt-3 text-xs text-gray-500">
+              This restores the previous wash stats for that clothing item.
+            </p>
+            <div className="mt-6 flex justify-end gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleCancelWashRemoval}
+                disabled={isRemovingWash}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={handleConfirmWashRemoval}
+                disabled={isRemovingWash}
+              >
+                {isRemovingWash ? 'Removing...' : 'Remove'}
               </Button>
             </div>
           </div>

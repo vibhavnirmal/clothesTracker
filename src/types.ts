@@ -41,3 +41,8 @@ export interface AddClothesPayload {
   materials?: Record<string, number>;
   madeIn?: string;
 }
+
+export interface ClothingType {
+  name: string;
+  icon?: string | null;
+}

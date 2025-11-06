@@ -7,7 +7,8 @@ import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group';
 import { Checkbox } from './ui/checkbox';
 import { X, Search, Minus as MinusIcon, Plus as PlusIcon } from 'lucide-react';
 import { toast } from './ui/sonner';
-import type { AddClothesPayload } from '../types';
+import type { AddClothesPayload, ClothingType } from '../types';
+import { getIconPath } from '../lib/icons';
 import { COLOR_OPTIONS, getColorName } from '../lib/colors';
 import { compressImage, estimateDataUrlBytes } from '../lib/imageCompression';
 import { buildInitialClothingForm } from '../lib/buildInitialClothingForm';
@@ -56,7 +57,7 @@ const calculateEvenDistribution = (materials: string[]): Record<string, number> 
 
 interface ClothingFormProps {
     initialValues?: Partial<AddClothesPayload>;
-    typeOptions: string[];
+    typeOptions: ClothingType[];
     materialOptions: string[];
     madeInOptions?: string[];
     onSubmit: (payload: AddClothesPayload) => Promise<void> | void;
@@ -256,9 +257,9 @@ export function ClothingForm({
 
     const availableTypeOptions = useMemo(() => {
         const unique = new Set<string>();
-        typeOptions.forEach(type => {
-            if (typeof type === 'string' && type.trim().length > 0) {
-                unique.add(type.trim());
+        typeOptions.forEach(typeObj => {
+            if (typeObj && typeObj.name && typeObj.name.trim().length > 0) {
+                unique.add(typeObj.name.trim());
             }
         });
         if (formData.type && formData.type.trim().length > 0) {
@@ -267,10 +268,10 @@ export function ClothingForm({
         // Preserve the order from typeOptions (already sorted by usage on backend)
         // Only add unique types in the order they appear in typeOptions
         const orderedTypes: string[] = [];
-        typeOptions.forEach(type => {
-            if (typeof type === 'string' && type.trim().length > 0 && unique.has(type.trim())) {
-                orderedTypes.push(type.trim());
-                unique.delete(type.trim());
+        typeOptions.forEach(typeObj => {
+            if (typeObj && typeObj.name && typeObj.name.trim().length > 0 && unique.has(typeObj.name.trim())) {
+                orderedTypes.push(typeObj.name.trim());
+                unique.delete(typeObj.name.trim());
             }
         });
         // Add formData.type at the end if it wasn't in typeOptions

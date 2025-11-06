@@ -1,4 +1,4 @@
-import type { AppSnapshot, AddClothesPayload, ClothesItem } from '../types';
+import type { AppSnapshot, AddClothesPayload, ClothesItem, ClothingType } from '../types';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, '') || '/api';
 
@@ -41,26 +41,26 @@ export function updateClothes(id: string, payload: AddClothesPayload): JsonRespo
   });
 }
 
-export function fetchClothingTypes(): JsonResponse<{ types: string[] }> {
-  return request<{ types: string[] }>('/types');
+export function fetchClothingTypes(): JsonResponse<{ types: ClothingType[] }> {
+  return request<{ types: ClothingType[] }>('/types');
 }
 
-export function createClothingType(name: string): JsonResponse<{ types: string[] }> {
-  return request<{ types: string[] }>('/types', {
+export function createClothingType(name: string, icon?: string | null): JsonResponse<{ types: ClothingType[] }> {
+  return request<{ types: ClothingType[] }>('/types', {
     method: 'POST',
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, icon }),
   });
 }
 
-export function updateClothingType(oldName: string, newName: string): JsonResponse<{ types: string[] }> {
-  return request<{ types: string[] }>(`/types/${encodeURIComponent(oldName)}`, {
+export function updateClothingType(oldName: string, newName: string, icon?: string | null): JsonResponse<{ types: ClothingType[] }> {
+  return request<{ types: ClothingType[] }>(`/types/${encodeURIComponent(oldName)}`, {
     method: 'PUT',
-    body: JSON.stringify({ name: newName }),
+    body: JSON.stringify({ name: newName, icon }),
   });
 }
 
-export function deleteClothingType(name: string): JsonResponse<{ types: string[] }> {
-  return request<{ types: string[] }>(`/types/${encodeURIComponent(name)}`, {
+export function deleteClothingType(name: string): JsonResponse<{ types: ClothingType[] }> {
+  return request<{ types: ClothingType[] }>(`/types/${encodeURIComponent(name)}`, {
     method: 'DELETE',
   });
 }
@@ -103,10 +103,22 @@ export function undoWear(clothesId: string, date?: string): JsonResponse<Pick<Ap
   });
 }
 
-export function recordWash(clothesIds: string[]): JsonResponse<Pick<AppSnapshot, 'clothes' | 'washRecords'>> {
+export function recordWash(clothesIds: string[], date?: string): JsonResponse<Pick<AppSnapshot, 'clothes' | 'washRecords'>> {
+  const payload: { clothesIds: string[]; date?: string } = { clothesIds };
+  if (date) {
+    payload.date = date;
+  }
+
   return request('/washes', {
     method: 'POST',
-    body: JSON.stringify({ clothesIds }),
+    body: JSON.stringify(payload),
+  });
+}
+
+export function undoWash(clothesId: string, date?: string): JsonResponse<Pick<AppSnapshot, 'clothes' | 'washRecords'>> {
+  const query = date ? `?date=${encodeURIComponent(date)}` : '';
+  return request(`/washes/${clothesId}${query}`, {
+    method: 'DELETE',
   });
 }
 

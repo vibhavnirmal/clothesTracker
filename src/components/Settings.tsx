@@ -23,7 +23,7 @@ export function Settings({
   const [isPurging, setIsPurging] = useState(false);
 
   // All hooks must be called before any conditional returns
-  const sortedTypes = useMemo(() => [...types].sort((a, b) => a.localeCompare(b)), [types]);
+  const sortedTypes = useMemo(() => [...types].sort((a, b) => a.name.localeCompare(b.name)), [types]);
   const sortedMaterials = useMemo(() => [...materials].sort((a, b) => a.localeCompare(b)), [materials]);
 
   const handlePurge = async () => {

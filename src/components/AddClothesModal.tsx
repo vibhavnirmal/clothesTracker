@@ -1,5 +1,5 @@
 import { X } from 'lucide-react';
-import type { AddClothesPayload } from '../types';
+import type { AddClothesPayload, ClothingType } from '../types';
 import { Button } from './ui/button';
 import { ClothingForm } from './ClothingForm';
 
@@ -10,7 +10,7 @@ interface AddClothesModalProps {
   title?: string;
   submitLabel?: string;
   initialValues?: Partial<AddClothesPayload>;
-  typeOptions: string[];
+  typeOptions: ClothingType[];
   materialOptions: string[];
   madeInOptions?: string[];
   onManageTypes?: () => void;

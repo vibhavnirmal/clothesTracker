@@ -1,11 +1,11 @@
 import React from 'react';
 import { ArrowLeft, Plus } from 'lucide-react';
-import type { AddClothesPayload } from '../types';
+import type { AddClothesPayload, ClothingType } from '../types';
 import { ClothingForm } from './ClothingForm';
 import { Button } from './ui/button';
 
 interface AddClothesPageProps {
-  typeOptions: string[];
+  typeOptions: ClothingType[];
   materialOptions: string[];
   madeInOptions?: string[];
   onSubmit: (payload: AddClothesPayload) => Promise<void> | void;

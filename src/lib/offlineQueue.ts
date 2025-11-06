@@ -7,12 +7,13 @@ export type QueuedAction =
     }
   | {
       type: 'record-wash';
-      payload: { clothesIds: string[]; queuedAt: number };
+      payload: { clothesIds: string[]; queuedAt: number; date?: string };
     };
 
 function toComparableKey(action: QueuedAction): string {
   const sortedIds = [...action.payload.clothesIds].sort();
-  return `${action.type}:${sortedIds.join('|')}`;
+  const dateKey = action.type === 'record-wash' && action.payload.date ? action.payload.date : '';
+  return `${action.type}:${dateKey}:${sortedIds.join('|')}`;
 }
 
 function dedupeQueue(queue: QueuedAction[]): QueuedAction[] {

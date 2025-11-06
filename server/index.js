@@ -41,6 +41,7 @@ db.exec(`
 
   CREATE TABLE IF NOT EXISTS clothing_types (
     name TEXT PRIMARY KEY COLLATE NOCASE,
+    icon TEXT,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S', 'now'))
   );
 
@@ -135,6 +136,13 @@ if (!hasCreatedAtColumn) {
   db.exec('ALTER TABLE clothes ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP');
 }
 
+// Add icon column to clothing_types table if it doesn't exist
+const clothingTypesColumns = db.prepare('PRAGMA table_info(clothing_types)').all();
+const hasIconColumn = clothingTypesColumns.some(column => column.name === 'icon');
+if (!hasIconColumn) {
+  db.exec('ALTER TABLE clothing_types ADD COLUMN icon TEXT');
+}
+
 const insertClothes = db.prepare(`
   INSERT INTO clothes (id, name, type, color, image, date_of_purchase, wears_since_wash, last_wash_date, size, materials, made_in, created_at)
   VALUES (@id, @name, @type, @color, @image, @dateOfPurchase, 0, NULL, @size, @materials, @madeIn, @createdAt)
@@ -150,11 +158,11 @@ const insertWashRecord = db.prepare(`
   VALUES (@id, @clothesId, @date)
 `);
 
-const selectAllClothingTypes = db.prepare('SELECT name FROM clothing_types ORDER BY name COLLATE NOCASE');
+const selectAllClothingTypes = db.prepare('SELECT name, icon FROM clothing_types ORDER BY name COLLATE NOCASE');
 const selectClothingTypeExists = db.prepare('SELECT 1 FROM clothing_types WHERE name = ? COLLATE NOCASE');
 const selectClothesCountByType = db.prepare('SELECT COUNT(*) AS count FROM clothes WHERE type = ? COLLATE NOCASE');
-const insertClothingType = db.prepare('INSERT INTO clothing_types (name) VALUES (?)');
-const updateClothingTypeName = db.prepare('UPDATE clothing_types SET name = ? WHERE name = ? COLLATE NOCASE');
+const insertClothingType = db.prepare('INSERT INTO clothing_types (name, icon) VALUES (?, ?)');
+const updateClothingTypeName = db.prepare('UPDATE clothing_types SET name = ?, icon = ? WHERE name = ? COLLATE NOCASE');
 const updateClothesTypeName = db.prepare('UPDATE clothes SET type = ? WHERE type = ? COLLATE NOCASE');
 const deleteClothingTypeByName = db.prepare('DELETE FROM clothing_types WHERE name = ? COLLATE NOCASE');
 
@@ -207,6 +215,42 @@ const selectWearRecordForDate = db.prepare(`
 
 const deleteWearRecordById = db.prepare('DELETE FROM wear_records WHERE id = ?');
 
+const selectWashRecordForDate = db.prepare(`
+  SELECT id
+  FROM wash_records
+  WHERE clothes_id = ? AND date = ?
+  LIMIT 1
+`);
+
+const deleteWashRecordById = db.prepare('DELETE FROM wash_records WHERE id = ?');
+
+const selectLatestWashDate = db.prepare(`
+  SELECT date
+  FROM wash_records
+  WHERE clothes_id = ?
+  ORDER BY date DESC, id DESC
+  LIMIT 1
+`);
+
+const countWearRecordsAfterDate = db.prepare(`
+  SELECT COUNT(*) as count
+  FROM wear_records
+  WHERE clothes_id = ? AND date > ?
+`);
+
+const countAllWearRecordsForClothes = db.prepare(`
+  SELECT COUNT(*) as count
+  FROM wear_records
+  WHERE clothes_id = ?
+`);
+
+const updateClothesWashMetadata = db.prepare(`
+  UPDATE clothes
+  SET wears_since_wash = @wearsSinceWash,
+      last_wash_date = @lastWashDate
+  WHERE id = @clothesId
+`);
+
 const deleteClothesById = db.prepare('DELETE FROM clothes WHERE id = ?');
 
 function serializeClothes(row) {
@@ -251,11 +295,12 @@ function getSnapshot() {
 }
 
 function getClothingTypes() {
-  const types = selectAllClothingTypes.all().map(row => row.name);
+  const rows = selectAllClothingTypes.all();
   // Sort by usage count (most used first), then alphabetically
-  const typesWithCount = types.map(name => ({
-    name,
-    usageCount: selectClothesCountByType.get(name).count
+  const typesWithCount = rows.map(row => ({
+    name: row.name,
+    icon: row.icon,
+    usageCount: selectClothesCountByType.get(row.name).count
   }));
   
 //   console.log('Clothing types with usage count:', typesWithCount);
@@ -269,7 +314,7 @@ function getClothingTypes() {
   
 //   console.log('Sorted clothing types:', sorted);
   
-  return sorted.map(item => item.name);
+  return sorted.map(item => ({ name: item.name, icon: item.icon }));
 }
 
 function getMaterialTypes() {
@@ -497,6 +542,7 @@ app.get('/api/types', (_req, res) => {
 
 app.post('/api/types', (req, res) => {
   const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+  const icon = typeof req.body?.icon === 'string' ? req.body.icon.trim() : null;
 
   if (!isNonEmptyString(name, MAX_TYPE_LENGTH)) {
     return res.status(400).json({
@@ -511,7 +557,7 @@ app.post('/api/types', (req, res) => {
   }
 
   try {
-    insertClothingType.run(name);
+    insertClothingType.run(name, icon);
   } catch (error) {
     console.error('Failed to insert clothing type', error);
     return res.status(500).json({ message: 'Failed to add clothing type' });
@@ -523,6 +569,7 @@ app.post('/api/types', (req, res) => {
 app.put('/api/types/:name', (req, res) => {
   const oldName = typeof req.params?.name === 'string' ? req.params.name.trim() : '';
   const newName = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+  const icon = typeof req.body?.icon === 'string' ? req.body.icon.trim() : null;
 
   if (!isNonEmptyString(oldName, MAX_TYPE_LENGTH)) {
     return res.status(400).json({
@@ -550,7 +597,7 @@ app.put('/api/types/:name', (req, res) => {
 
   try {
     db.transaction(() => {
-      updateClothingTypeName.run(newName, oldName);
+      updateClothingTypeName.run(newName, icon, oldName);
       updateClothesTypeName.run(newName, oldName);
     })();
   } catch (error) {
@@ -816,10 +863,10 @@ app.delete('/api/wears/:id', (req, res) => {
     return res.status(400).json({ message: 'Invalid clothing identifier' });
   }
 
-  const requestedDate = typeof req.query.date === 'string' ? req.query.date : undefined;
-  const targetDate = requestedDate && /^\d{4}-\d{2}-\d{2}$/.test(requestedDate)
-    ? requestedDate
-    : new Date().toISOString().split('T')[0];
+    const requestedDate = typeof req.query.date === 'string' ? req.query.date : undefined;
+    const targetDate = requestedDate && /^\d{4}-\d{2}-\d{2}$/.test(requestedDate)
+      ? requestedDate
+      : getTodayLocalDate();
 
   const record = selectWearRecordForDate.get(id, targetDate);
   if (!record) {
@@ -841,6 +888,60 @@ app.delete('/api/wears/:id', (req, res) => {
   res.json({
     clothes: clothesSelect.all().map(serializeClothes),
     wearRecords: wearSelect.all().map(serializeWear),
+  });
+});
+
+app.delete('/api/washes/:id', (req, res) => {
+  const { id } = req.params;
+
+  if (!isUuid(id)) {
+    return res.status(400).json({ message: 'Invalid clothing identifier' });
+  }
+
+  const requestedDate = typeof req.query.date === 'string' ? req.query.date : undefined;
+  const targetDate = requestedDate && /^\d{4}-\d{2}-\d{2}$/.test(requestedDate)
+    ? requestedDate
+    : getTodayLocalDate();
+
+  const record = selectWashRecordForDate.get(id, targetDate);
+  if (!record) {
+    return res.status(404).json({ message: 'No wash record found for the specified date.' });
+  }
+
+  const run = db.transaction(() => {
+    deleteWashRecordById.run(record.id);
+
+    const latest = selectLatestWashDate.get(id);
+
+    if (latest && typeof latest.date === 'string') {
+      const wearCountRow = countWearRecordsAfterDate.get(id, latest.date);
+      const wearsSinceWash = Number(wearCountRow?.count ?? 0);
+      updateClothesWashMetadata.run({
+        clothesId: id,
+        wearsSinceWash,
+        lastWashDate: latest.date,
+      });
+    } else {
+      const wearCountRow = countAllWearRecordsForClothes.get(id);
+      const wearsSinceWash = Number(wearCountRow?.count ?? 0);
+      updateClothesWashMetadata.run({
+        clothesId: id,
+        wearsSinceWash,
+        lastWashDate: null,
+      });
+    }
+  });
+
+  try {
+    run();
+  } catch (error) {
+    console.error('Failed to undo wash event', error);
+    return res.status(500).json({ message: 'Failed to undo wash event.' });
+  }
+
+  res.json({
+    clothes: clothesSelect.all().map(serializeClothes),
+    washRecords: washSelect.all().map(serializeWash),
   });
 });
 
@@ -872,17 +973,18 @@ app.post('/api/washes', (req, res) => {
     return res.status(404).json({ message: `Clothing item ${missingId} was not found.` });
   }
 
-  const today = getTodayLocalDate();
+  const requestedDate = typeof req.body?.date === 'string' ? req.body.date.trim() : '';
+  const targetDate = isValidIsoDate(requestedDate) ? requestedDate : getTodayLocalDate();
 
-  const run = db.transaction(ids => {
+  const run = db.transaction((ids, date) => {
     ids.forEach(clothesId => {
-      insertWashRecord.run({ id: randomUUID(), clothesId, date: today });
-      resetWearCount.run({ clothesId, date: today });
+      insertWashRecord.run({ id: randomUUID(), clothesId, date });
+      resetWearCount.run({ clothesId, date });
     });
   });
 
   try {
-    run(sanitizedIds);
+    run(sanitizedIds, targetDate);
     res.json({
       clothes: clothesSelect.all().map(serializeClothes),
       washRecords: washSelect.all().map(serializeWash),

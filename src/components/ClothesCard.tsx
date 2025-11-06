@@ -5,6 +5,7 @@ import { ImageWithFallback } from './ImageWithFallback';
 import type { ClothesItem } from '../types';
 import { getColorName } from '../lib/colors';
 import { formatIsoDate } from '../lib/date';
+import { getIconPath } from '../lib/icons';
 
 interface ClothesCardProps {
 	item: ClothesItem;
@@ -14,6 +15,7 @@ interface ClothesCardProps {
 	wornToday: boolean;
 	lastWearDate?: string;
 	onEdit?: () => void;
+	typeIcon?: string | null;
 }
 
 export function ClothesCard({
@@ -24,6 +26,7 @@ export function ClothesCard({
 	wornToday,
 	lastWearDate,
 	onEdit,
+	typeIcon,
 }: ClothesCardProps) {
 	const getInitials = (name: string) => {
 		return name.split(' ').map(word => word[0]).join('').toUpperCase().slice(0, 2);
@@ -116,7 +119,6 @@ export function ClothesCard({
 			</div>
 
 			<div style={{ padding: '0.5rem' }}>
-
 				{/* Wear count badge */}
 				{item.wearsSinceWash >= 1 && (
 					<div className={`relative mt-1 text-gray-500 flex items-center justify-center text-xs`}>
@@ -135,21 +137,23 @@ export function ClothesCard({
 				{/* Clothes info */}
 				<div className="flex justify-between items-center">
 					<div className='items-start' style={{ paddingTop: '0.5rem', minWidth: 0 }}>
-						<h3 className="text-sm truncate overflow-hidden whitespace-nowrap w-full">{item.name}</h3>
-						<div className="flex items-center gap-2">
-							<p className="text-xs text-gray-600 truncate">{item.type}</p>
+						<div className='flex flex-row gap-2 items-center'>
+							{typeIcon && (
+									<img src={getIconPath(typeIcon) || ''} alt="" className="w-4 h-4 flex-shrink-0" />
+							)}
+							<h3 className="text-sm truncate overflow-hidden whitespace-nowrap w-full">{item.name}</h3>
+						
+							{/* <p className="text-xs text-gray-600 truncate">{item.type}</p> */}
 							{item.size && (
 								<>
-									<span className="text-xs text-gray-400">•</span>
-									<span className="text-xs text-gray-600 font-medium">{item.size}</span>
+									<span className="text-xs text-gray-600 font-medium" style={{ paddingLeft: '0.25rem', paddingRight: '0.25rem', backgroundColor: "lightblue"}}>{item.size}</span>
 								</>
 							)}
-							{item.madeIn && (
+							{/* {item.madeIn && (
 								<>
-									<span className="text-xs text-gray-400">•</span>
 									<span className="text-xs text-gray-500 italic">{item.madeIn}</span>
 								</>
-							)}
+							)} */}
 						</div>
 					</div>
 				</div>

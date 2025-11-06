@@ -1,9 +1,11 @@
+import type { ClothingType } from '../../types';
+
 export type SettingsSection = 'overview' | 'clothingTypes' | 'materialTypes';
 
 export interface SettingsProps {
-  types: string[];
+  types: ClothingType[];
   materials: string[];
-  onTypesUpdated: (types: string[]) => void;
+  onTypesUpdated: (types: ClothingType[]) => void;
   onMaterialsUpdated: (materials: string[]) => void;
   onBack?: () => void;
   activeSection: SettingsSection;

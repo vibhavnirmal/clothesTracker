@@ -3,6 +3,7 @@ import { Calendar, Home, PieChart, Settings as SettingsIcon, Waves, Check, Searc
 import { ClothesCard } from './components/ClothesCard';
 import { AddClothesModal } from './components/AddClothesModal';
 import { AddClothesPage } from './components/AddClothesPage';
+import { getIconPath } from './lib/icons';
 import { WashClothes } from './components/WashClothes';
 import { Button } from './components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './components/ui/select';
@@ -13,7 +14,7 @@ import {
 	NavigationMenuList,
 } from './components/ui/navigation-menu';
 import { Toaster, toast } from './components/ui/sonner';
-import type { AddClothesPayload, ClothesItem, WearRecord, WashRecord } from './types';
+import type { AddClothesPayload, ClothesItem, WearRecord, WashRecord, ClothingType } from './types';
 import {
 	createClothes,
 	fetchClothingTypes,
@@ -22,6 +23,7 @@ import {
 	recordWash,
 	recordWear,
 	undoWear,
+	undoWash,
 	updateClothes,
 	purgeDatabase,
 } from './lib/api';
@@ -106,7 +108,7 @@ export default function App() {
 	const [installBannerDismissed, setInstallBannerDismissed] = useState(false);
 	const [showIosInstallPrompt, setShowIosInstallPrompt] = useState(false);
 	const [editingClothes, setEditingClothes] = useState<ClothesItem | null>(null);
-	const [clothingTypes, setClothingTypes] = useState<string[]>([]);
+	const [clothingTypes, setClothingTypes] = useState<ClothingType[]>([]);
 	const [materialTypes, setMaterialTypes] = useState<string[]>([]);
 	const [typeFilter, setTypeFilter] = useState('');
 	const [colorFilter, setColorFilter] = useState('');
@@ -182,7 +184,7 @@ export default function App() {
 		}
 	}, []);
 
-	const handleTypesUpdated = useCallback((types: string[]) => {
+	const handleTypesUpdated = useCallback((types: ClothingType[]) => {
 		setClothingTypes(types);
 	}, []);
 
@@ -201,6 +203,16 @@ export default function App() {
 	}, [clothes]);
 
 	const availableTypes = useMemo(() => {
+		const unique = new Set<string>();
+		clothes.forEach(item => {
+			if (item.type?.trim()) {
+				unique.add(item.type.trim());
+			}
+		});
+		return Array.from(unique).sort((a, b) => a.localeCompare(b));
+	}, [clothes]);
+
+	const availableTypesForDropdown = useMemo(() => {
 		const unique = new Set<string>();
 		clothes.forEach(item => {
 			// If color filter is active, only include types that have that color
@@ -238,6 +250,48 @@ export default function App() {
 		return Array.from(unique.values()).sort((a, b) => a.label.localeCompare(b.label));
 	}, [clothes, typeFilter]);
 
+	// Top 10 color groups with counts
+	const topColorGroups = useMemo(() => {
+		// Define color groups with their shades
+		const colorGroups = {
+			'Black': ['#000000', '#36454F'], // Black, Charcoal
+			'White': ['#FFFFFF', '#FFFDD0', '#FFFFF0', '#F5F5DC'], // White, Cream, Ivory, Beige
+			'Gray': ['#808080', '#C0C0C0'], // Gray, Silver
+			'Blue': ['#0000FF', '#000080', '#ADD8E6', '#87CEEB', '#1560BD'], // Blue, Navy, Light Blue, Sky Blue, Denim
+			'Red': ['#FF0000', '#800000', '#FFC0CB', '#800020', '#FF7F50'], // Red, Maroon, Pink, Burgundy, Coral
+			'Green': ['#008000', '#98FF98', '#00FF00', '#808000'], // Green, Mint, Lime, Olive
+			'Yellow': ['#FFFF00', '#FFD700', '#FFDB58', '#F0E68C'], // Yellow, Gold, Mustard, Khaki
+			'Purple': ['#800080', '#E6E6FA', '#FF00FF'], // Purple, Lavender, Magenta
+			'Orange': ['#FFA500', '#FFDAB9'], // Orange, Peach
+			'Brown': ['#A52A2A', '#D2B48C'], // Brown, Tan
+			'Cyan': ['#00FFFF', '#008080', '#40E0D0'], // Cyan, Teal, Turquoise
+		};
+
+		// Count items per group
+		const groupCounts = new Map<string, { count: number; representativeColor: string }>();
+		
+		Object.entries(colorGroups).forEach(([groupName, shades]) => {
+			let count = 0;
+			clothes.forEach(item => {
+				if (typeFilter && item.type !== typeFilter) return;
+				if (!item.color) return;
+				const normalized = item.color.trim().toUpperCase();
+				if (shades.includes(normalized)) {
+					count++;
+				}
+			});
+			if (count > 0) {
+				groupCounts.set(groupName, { count, representativeColor: shades[0] });
+			}
+		});
+
+		// Sort by count and take top 10
+		return Array.from(groupCounts.entries())
+			.sort((a, b) => b[1].count - a[1].count)
+			.slice(0, 10)
+			.map(([name, { representativeColor }]) => ({ name, color: representativeColor }));
+	}, [clothes, typeFilter]);
+
 	const clothingTypeUsage = useMemo(() => {
 		const counts: Record<string, number> = {};
 		clothes.forEach(item => {
@@ -255,16 +309,48 @@ export default function App() {
 	}, [typeFilter, availableTypes]);
 
 	useEffect(() => {
-		if (colorFilter && !availableColors.some(option => option.value === colorFilter)) {
-			setColorFilter('');
+		if (colorFilter) {
+			// Check if it's a valid color (either in availableColors or a color group representative)
+			const isValidColor = availableColors.some(option => option.value === colorFilter);
+			const isColorGroupRepresentative = topColorGroups.some(group => group.color === colorFilter);
+			
+			if (!isValidColor && !isColorGroupRepresentative) {
+				setColorFilter('');
+			}
 		}
-	}, [colorFilter, availableColors]);
+	}, [colorFilter, availableColors, topColorGroups]);
 
 	const filteredClothes = useMemo(() => {
+		// Color groups mapping for filtering
+		const colorGroups: Record<string, string[]> = {
+			'#000000': ['#000000', '#36454F'], // Black, Charcoal
+			'#FFFFFF': ['#FFFFFF', '#FFFDD0', '#FFFFF0', '#F5F5DC'], // White, Cream, Ivory, Beige
+			'#808080': ['#808080', '#C0C0C0'], // Gray, Silver
+			'#0000FF': ['#0000FF', '#000080', '#ADD8E6', '#87CEEB', '#1560BD'], // Blue shades
+			'#FF0000': ['#FF0000', '#800000', '#FFC0CB', '#800020', '#FF7F50'], // Red shades
+			'#008000': ['#008000', '#98FF98', '#00FF00', '#808000'], // Green shades
+			'#FFFF00': ['#FFFF00', '#FFD700', '#FFDB58', '#F0E68C'], // Yellow shades
+			'#800080': ['#800080', '#E6E6FA', '#FF00FF'], // Purple shades
+			'#FFA500': ['#FFA500', '#FFDAB9'], // Orange shades
+			'#A52A2A': ['#A52A2A', '#D2B48C'], // Brown shades
+			'#00FFFF': ['#00FFFF', '#008080', '#40E0D0'], // Cyan shades
+		};
+
 		return clothes.filter(item => {
 			const matchesType = !typeFilter || item.type === typeFilter;
 			const itemColor = item.color?.trim().toUpperCase() ?? '';
-			const matchesColor = !colorFilter || itemColor === colorFilter;
+			
+			// Check if color matches - either exact match or in the same group
+			let matchesColor = !colorFilter;
+			if (colorFilter && itemColor) {
+				// Check if the filter color is a group representative
+				const group = colorGroups[colorFilter];
+				if (group) {
+					matchesColor = group.includes(itemColor);
+				} else {
+					matchesColor = itemColor === colorFilter;
+				}
+			}
 
 			// Search filter
 			const matchesSearch = !searchQuery ||
@@ -354,6 +440,7 @@ export default function App() {
 					case 'record-wash': {
 						const { clothes: updatedClothes, washRecords: updatedWashRecords } = await recordWash(
 							action.payload.clothesIds,
+							action.payload.date,
 						);
 						setClothes(updatedClothes);
 						setWashRecords(updatedWashRecords);
@@ -783,13 +870,13 @@ export default function App() {
 		}
 	}, [registerSync, resetActionError, selectedForWearing]);
 
-	const markAsWashed = useCallback(async (clothesIds: string[]) => {
+	const markAsWashed = useCallback(async (clothesIds: string[], date?: string) => {
 		if (clothesIds.length === 0) return;
 
 		if (typeof navigator !== 'undefined' && !navigator.onLine) {
 			const queue = enqueueAction({
 				type: 'record-wash',
-				payload: { clothesIds, queuedAt: Date.now() },
+				payload: { clothesIds, queuedAt: Date.now(), date },
 			});
 			setPendingSyncCount(queue.length);
 			toast.info(
@@ -802,7 +889,7 @@ export default function App() {
 		resetActionError();
 
 		try {
-			const { clothes: updatedClothes, washRecords: updatedWashRecords } = await recordWash(clothesIds);
+			const { clothes: updatedClothes, washRecords: updatedWashRecords } = await recordWash(clothesIds, date);
 			setClothes(updatedClothes);
 			setWashRecords(updatedWashRecords);
 		} catch (err) {
@@ -858,6 +945,35 @@ export default function App() {
 		}
 	}, [resetActionError, wearRecords]);
 
+	const handleAddWashToDate = useCallback(async (clothesIds: string[], date: string) => {
+		resetActionError();
+		const existingForDate = new Set(washRecords.filter(record => record.date === date).map(record => record.clothesId));
+		const uniqueIds = clothesIds.filter(id => !existingForDate.has(id));
+		if (uniqueIds.length === 0) {
+			toast.info('Those clothes are already marked as washed for that day.');
+			return;
+		}
+
+		const skipped = clothesIds.length - uniqueIds.length;
+		const wasOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+
+		try {
+			await markAsWashed(uniqueIds, date);
+			if (!wasOffline) {
+				let message = `Marked ${uniqueIds.length} item${uniqueIds.length === 1 ? '' : 's'} as washed on ${date}`;
+				if (skipped > 0) {
+					message += ` (skipped ${skipped} already logged)`;
+				}
+				toast.success(message);
+			}
+		} catch (err) {
+			const message = err instanceof Error ? err.message : 'Failed to mark clothes as washed for that date';
+			setActionError(message);
+			toast.error(message);
+			throw err;
+		}
+	}, [resetActionError, washRecords, markAsWashed]);
+
 	const handleRemoveWearFromDate = useCallback(async (clothesId: string, date: string) => {
 		resetActionError();
 		const removedItem = clothes.find(item => item.id === clothesId);
@@ -884,6 +1000,23 @@ export default function App() {
 			throw err;
 		}
 	}, [resetActionError, clothes, today]);
+
+	const handleRemoveWashFromDate = useCallback(async (clothesId: string, date: string) => {
+		resetActionError();
+		const removedItem = clothes.find(item => item.id === clothesId);
+		try {
+			const { clothes: updatedClothes, washRecords: updatedWashRecords } = await undoWash(clothesId, date);
+			setClothes(updatedClothes);
+			setWashRecords(updatedWashRecords);
+			const label = removedItem?.name ?? 'Wash record';
+			toast.success(`Removed wash for ${label} on ${date}.`);
+		} catch (err) {
+			const message = err instanceof Error ? err.message : 'Failed to remove wash record';
+			setActionError(message);
+			toast.error(message);
+			throw err;
+		}
+	}, [resetActionError, clothes]);
 
 	const handleBulkPhotoSubmit = useCallback(async (photos: Array<{ date: string | null; selectedClothesIds: string[] }>) => {
 		resetActionError();
@@ -959,6 +1092,81 @@ export default function App() {
 							})()})&nbsp;?
 						</div> */}
 						<div className="p-4">
+							{/* Quick Type Filter Icons */}
+							<div className="mb-3 overflow-x-auto scrollbar-hide">
+								<div className="flex gap-2 pb-2">
+									{clothingTypes
+										.filter((type) => availableTypes.includes(type.name))
+										.sort((a, b) => {
+											const countA = clothingTypeUsage[a.name] || 0;
+											const countB = clothingTypeUsage[b.name] || 0;
+											return countB - countA; // Sort descending by count
+										})
+										.map((type) => {
+										const isActive = typeFilter === type.name;
+										return (
+											<button
+												key={type.name}
+												onClick={() => setTypeFilter(isActive ? '' : type.name)}
+												className={`
+													flex items-center gap-1.5 rounded-md border-2 transition-all whitespace-nowrap
+													${isActive 
+														? 'border-blue-500 bg-blue-50 text-blue-700' 
+														: 'border-gray-200 bg-white text-gray-700 hover:border-gray-300 hover:bg-gray-50'
+													}
+												`}
+												title={type.name}
+											>
+												{type.icon ? (
+													<div className="flex items-center gap-1">
+														<img 
+															src={getIconPath(type.icon) || ''}
+															alt="" 
+															className=""
+															style={{ width: "40px", height: "40px", maxWidth: "75px", maxHeight: "75px", padding: "5px"}}
+														/>
+														<span></span>
+													</div>
+												) : (
+													<span className="text-sm font-medium px-2">{type.name}</span>
+												)}
+											</button>
+										);
+									})}
+								</div>
+							</div>
+
+							{/* Quick Color Filter */}
+							{topColorGroups.length > 0 && (
+								<div className="mb-3 overflow-x-auto scrollbar-hide">
+									<div className="flex gap-2 pb-2">
+										{topColorGroups.map((colorGroup) => {
+											// Check if any shade in this group is active
+											const isActive = colorFilter === colorGroup.color;
+											return (
+												<button
+													key={colorGroup.name}
+													onClick={() => setColorFilter(isActive ? '' : colorGroup.color)}
+													className={`
+														transition-all
+														${isActive 
+															? 'border-blue-500 bg-blue-50' 
+															: 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50'
+														}
+													`}
+													title={colorGroup.name}
+												>
+													<span
+														className="block w-8 h-8 rounded-md border border-gray-300"
+														style={{ backgroundColor: colorGroup.color }}
+													/>
+												</button>
+											);
+										})}
+									</div>
+								</div>
+							)}
+							
 							{/* Compact Search and Filter Bar */}
 							<div className="mb-3">
 								{/* Search with Sort and Filter Button */}
@@ -983,24 +1191,20 @@ export default function App() {
 										)}
 									</div>
 									
-									{/* Filter Toggle Button */}
-									<button
-										onClick={() => setShowFilters(!showFilters)}
-										className={`flex items-center gap-1 px-3 py-2 border rounded-lg transition-colors ${
-											showFilters || typeFilter || colorFilter
-												? 'bg-blue-50 border-blue-300 text-blue-700'
-												: 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
-										}`}
-										aria-label="Toggle filters"
-										aria-expanded={showFilters}
-									>
-										<Filter className="h-4 w-4" />
-										{(typeFilter || colorFilter) && (
-											<span className="hidden sm:inline text-xs font-medium">
-												({[typeFilter, colorFilter].filter(Boolean).length})
-											</span>
-										)}
-									</button>
+									{/* Clear Filters Button */}
+									{(typeFilter || colorFilter) && (
+										<button
+											onClick={() => {
+												setTypeFilter('');
+												setColorFilter('');
+											}}
+											className="flex items-center gap-1 px-3 py-2 border rounded-lg transition-colors bg-white border-red-300 text-red-600 hover:bg-red-50"
+											aria-label="Clear all filters"
+										>
+											<X className="h-4 w-4" />
+											<span className="hidden sm:inline text-sm font-medium">Clear</span>
+										</button>
+									)}
 
 									{/* Sort Dropdown */}
 									<Select
@@ -1020,71 +1224,6 @@ export default function App() {
 										</SelectContent>
 									</Select>
 								</div>
-
-								{/* Collapsible Filter Section */}
-								{showFilters && (
-									<div className="bg-gray-50 border border-gray-200 rounded-lg mb-2 animate-in slide-in-from-top-2 duration-200" style={{ padding: "15px"}}>
-										<div className="flex items-center gap-2 flex-wrap">
-											<span className="text-xs font-medium text-gray-700">Filters:</span>
-											
-											<Select
-												value={typeFilter || 'all'}
-												onValueChange={value => setTypeFilter(value === 'all' ? '' : value)}
-											>
-												<SelectTrigger size="sm" className="h-8 text-sm">
-													<SelectValue placeholder="Type" />
-												</SelectTrigger>
-												<SelectContent>
-													<SelectItem value="all">All types</SelectItem>
-													{availableTypes.map(type => (
-														<SelectItem key={type} value={type}>
-															{type}
-														</SelectItem>
-													))}
-												</SelectContent>
-											</Select>
-
-											<Select
-												value={colorFilter || 'all'}
-												onValueChange={value => setColorFilter(value === 'all' ? '' : value)}
-												disabled={availableColors.length === 0}
-											>
-												<SelectTrigger size="sm" className="h-8 text-sm">
-													<SelectValue placeholder="Color" />
-												</SelectTrigger>
-												<SelectContent>
-													<SelectItem value="all">All colors</SelectItem>
-													{availableColors.map(option => (
-														<SelectItem key={option.value} value={option.value}>
-															<span className="flex items-center gap-2">
-																<span
-																	className="h-3 w-3 rounded-full border border-gray-300"
-																	style={{ backgroundColor: option.value }}
-																/>
-																{option.label}
-															</span>
-														</SelectItem>
-													))}
-												</SelectContent>
-											</Select>
-
-											{(typeFilter || colorFilter) && (
-												<button
-													onClick={() => {
-														setTypeFilter('');
-														setColorFilter('');
-													}}
-													className="flex items-center gap-1 h-8 px-2.5 py-1 text-xs text-red-600 hover:text-red-700 hover:bg-red-50 rounded-md transition-colors border border-red-200"
-													style={{ paddingLeft: "5px", paddingRight: "10px"}}
-													aria-label="Clear all filters"
-												>
-													<X className="h-3 w-3" />
-													<span className="hidden sm:inline">Clear</span>
-												</button>
-											)}
-										</div>
-									</div>
-								)}
 							</div>
 
 							{/* Results counter */}
@@ -1104,6 +1243,7 @@ export default function App() {
 								<div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
 									{sortedClothes.map(item => {
 										const status = wearStatus.get(item.id);
+										const typeInfo = clothingTypes.find(t => t.name === item.type);
 
 										return (
 											<ClothesCard
@@ -1116,6 +1256,7 @@ export default function App() {
 												badgeColor={getWearCountBadgeColor(item.wearsSinceWash)}
 												wornToday={status?.wornToday ?? false}
 												lastWearDate={status?.lastWearDate}
+												typeIcon={typeInfo?.icon}
 												onEdit={() => {
 													resetActionError();
 													setEditingClothes(item);
@@ -1196,7 +1337,9 @@ export default function App() {
 							wearRecords={wearRecords}
 							washRecords={washRecords}
 							onAddToDate={handleAddToDate}
+							onAddWashToDate={handleAddWashToDate}
 							onRemoveWear={handleRemoveWearFromDate}
+							onRemoveWash={handleRemoveWashFromDate}
 							onBulkPhotoSubmit={handleBulkPhotoSubmit}
 							onCreateClothes={createAndStoreClothes}
 							typeOptions={clothingTypes}

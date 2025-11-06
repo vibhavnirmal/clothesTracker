@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Calendar, Plus, X, Search } from 'lucide-react';
+import { Calendar, Droplets, Search, Shirt, X } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import type { ClothesItem } from '../types';
@@ -8,39 +8,56 @@ import { ImageWithFallback } from './ImageWithFallback';
 interface AddToDateModalProps {
 	clothes: ClothesItem[];
 	date: string;
-	onAdd: (clothesIds: string[], date: string) => Promise<void>;
+	onAddWear?: (clothesIds: string[], date: string) => Promise<void>;
+	onAddWash?: (clothesIds: string[], date: string) => Promise<void>;
 	onClose: () => void;
-	disabledClothesIds?: string[];
+	disabledWearClothesIds?: string[];
+	disabledWashClothesIds?: string[];
 }
 
-export function AddToDateModal({ clothes, date, onAdd, onClose, disabledClothesIds }: AddToDateModalProps) {
+type SubmissionAction = 'wear' | 'wash';
+
+export function AddToDateModal({
+	clothes,
+	date,
+	onAddWear,
+	onAddWash,
+	onClose,
+	disabledWearClothesIds,
+	disabledWashClothesIds,
+}: AddToDateModalProps) {
 	const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 	const [searchTerm, setSearchTerm] = useState('');
-	const [isSubmitting, setIsSubmitting] = useState(false);
+	const [submittingAction, setSubmittingAction] = useState<SubmissionAction | null>(null);
 
-	const disabledSet = useMemo(() => new Set(disabledClothesIds ?? []), [disabledClothesIds]);
+	const disabledWearSet = useMemo(() => new Set(disabledWearClothesIds ?? []), [disabledWearClothesIds]);
+	const disabledWashSet = useMemo(() => new Set(disabledWashClothesIds ?? []), [disabledWashClothesIds]);
 
 	useEffect(() => {
+		if (disabledWearSet.size === 0 && disabledWashSet.size === 0) {
+			return;
+		}
+
 		setSelectedIds(prev => {
 			let changed = false;
 			const next = new Set(prev);
-			disabledSet.forEach(id => {
-				if (next.has(id)) {
+			next.forEach(id => {
+				if (disabledWearSet.has(id) && disabledWashSet.has(id)) {
 					next.delete(id);
 					changed = true;
 				}
 			});
 			return changed ? next : prev;
 		});
-	}, [disabledSet]);
+	}, [disabledWearSet, disabledWashSet]);
 
 	const formattedDate = useMemo(() => {
 		const d = new Date(date + 'T00:00:00');
-		return d.toLocaleDateString('en-US', { 
+		return d.toLocaleDateString('en-US', {
 			weekday: 'long',
-			year: 'numeric', 
-			month: 'long', 
-			day: 'numeric' 
+			year: 'numeric',
+			month: 'long',
+			day: 'numeric',
 		});
 	}, [date]);
 
@@ -53,10 +70,14 @@ export function AddToDateModal({ clothes, date, onAdd, onClose, disabledClothesI
 		);
 	}, [clothes, searchTerm]);
 
+	const selectedList = useMemo(() => Array.from(selectedIds), [selectedIds]);
+
 	const handleToggle = useCallback((id: string) => {
-		if (disabledSet.has(id)) {
+		const isFullyLogged = disabledWearSet.has(id) && disabledWashSet.has(id);
+		if (isFullyLogged) {
 			return;
 		}
+
 		setSelectedIds(prev => {
 			const next = new Set(prev);
 			if (next.has(id)) {
@@ -66,32 +87,49 @@ export function AddToDateModal({ clothes, date, onAdd, onClose, disabledClothesI
 			}
 			return next;
 		});
-	}, [disabledSet]);
+	}, [disabledWearSet, disabledWashSet]);
 
-	const handleSubmit = useCallback(async () => {
-		const idsToAdd = Array.from(selectedIds).filter(id => !disabledSet.has(id));
-		if (idsToAdd.length === 0) return;
+	const canSubmitWear = useMemo(() => {
+		if (!onAddWear) return false;
+		return selectedList.some(id => !disabledWearSet.has(id));
+	}, [onAddWear, selectedList, disabledWearSet]);
 
-		setIsSubmitting(true);
+	const canSubmitWash = useMemo(() => {
+		if (!onAddWash) return false;
+		return selectedList.some(id => !disabledWashSet.has(id));
+	}, [onAddWash, selectedList, disabledWashSet]);
+
+	const handleSubmit = useCallback(async (action: SubmissionAction) => {
+		const handler = action === 'wear' ? onAddWear : onAddWash;
+		if (!handler) {
+			return;
+		}
+
+		const disallowedSet = action === 'wear' ? disabledWearSet : disabledWashSet;
+		const idsToSubmit = selectedList.filter(id => !disallowedSet.has(id));
+		if (idsToSubmit.length === 0) {
+			return;
+		}
+
+		setSubmittingAction(action);
 		try {
-			await onAdd(idsToAdd, date);
+			await handler(idsToSubmit, date);
+			setSelectedIds(new Set());
 			onClose();
 		} catch (error) {
-			console.error('Failed to add clothes to date:', error);
+			console.error(`Failed to add clothes to ${action}:`, error);
 		} finally {
-			setIsSubmitting(false);
+			setSubmittingAction(null);
 		}
-	}, [selectedIds, disabledSet, date, onAdd, onClose]);
+	}, [disabledWearSet, disabledWashSet, onAddWear, onAddWash, selectedList, date, onClose]);
 
 	const handleClear = useCallback(() => {
 		setSelectedIds(new Set());
 	}, []);
 
 	return (
-		<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" 
-        style={{ height: '100vh' }}>
-			<div className="bg-white rounded-lg shadow-xl w-full max-w-2xl flex flex-col overflow-hidden"
-                style={{ maxHeight: '85vh' }}>
+		<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" style={{ height: '100vh' }}>
+			<div className="bg-white rounded-lg shadow-xl w-full max-w-2xl flex flex-col overflow-hidden" style={{ maxHeight: '85vh' }}>
 				{/* Header */}
 				<div className="p-4 border-b flex items-center justify-between flex-shrink-0">
 					<div className="flex items-center gap-3">
@@ -122,13 +160,13 @@ export function AddToDateModal({ clothes, date, onAdd, onClose, disabledClothesI
 							className="pl-10"
 						/>
 					</div>
-					{selectedIds.size > 0 && (
+					{selectedList.length > 0 && (
 						<div className="mt-2 flex items-center justify-between">
 							<p className="text-sm text-blue-600 font-medium">
-								{selectedIds.size} item{selectedIds.size === 1 ? '' : 's'} selected
+								{selectedList.length} item{selectedList.length === 1 ? '' : 's'} selected
 							</p>
-							<Button 
-								variant="ghost" 
+							<Button
+								variant="ghost"
 								size="sm"
 								onClick={handleClear}
 								className="text-gray-600 hover:text-gray-900 h-auto py-1"
@@ -143,31 +181,29 @@ export function AddToDateModal({ clothes, date, onAdd, onClose, disabledClothesI
 				<div className="flex-1 overflow-y-auto p-4 min-h-0">
 					<div className="grid gap-3 sm:grid-cols-2">
 						{filteredClothes.map(item => {
-							const isDisabled = disabledSet.has(item.id);
-							const isSelected = !isDisabled && selectedIds.has(item.id);
+							const isWearLogged = disabledWearSet.has(item.id);
+							const isWashLogged = disabledWashSet.has(item.id);
+							const isFullyLogged = isWearLogged && isWashLogged;
+							const isSelected = selectedIds.has(item.id);
 
 							const cardClasses = [
 								'rounded-lg border p-3 transition-all',
-								isDisabled ? 'cursor-not-allowed bg-gray-50 border-gray-200 opacity-50' : 'cursor-pointer bg-white hover:border-gray-300',
-								isSelected ? 'border-blue-500 bg-blue-50' : ''
-							].filter(Boolean).join(' ');
+								isSelected ? 'border-blue-500 bg-blue-50 shadow-sm' : 'border-gray-200 bg-white',
+								isFullyLogged ? 'cursor-not-allowed opacity-50 bg-gray-50 border-gray-200' : 'cursor-pointer hover:border-gray-300',
+							].join(' ');
 
 							const checkboxClasses = [
 								'w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0',
 								isSelected ? 'bg-blue-500 border-blue-500 text-white' : 'border-gray-300 bg-white text-transparent',
-								isDisabled ? 'border-dashed' : ''
-							].filter(Boolean).join(' ');
+								isFullyLogged ? 'border-dashed' : '',
+							].join(' ');
 
 							return (
 								<div
 									key={item.id}
-									onClick={() => {
-										if (!isDisabled) {
-											handleToggle(item.id);
-										}
-									}}
+									onClick={() => handleToggle(item.id)}
 									className={cardClasses}
-									aria-disabled={isDisabled}
+									aria-disabled={isFullyLogged}
 								>
 									<div className="flex items-center gap-3">
 										{/* Checkbox */}
@@ -199,18 +235,22 @@ export function AddToDateModal({ clothes, date, onAdd, onClose, disabledClothesI
 										<div className="flex-1 min-w-0">
 											<div className="flex items-start justify-between gap-2">
 												<p className="text-sm font-medium text-gray-900 truncate">{item.name}</p>
-												{isDisabled && (
-													<span className="flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-600">
-														<svg className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-															<path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-7.25 7.25a1 1 0 01-1.414 0l-3-3a1 1 0 111.414-1.414L8.75 11.086l6.543-6.543a1 1 0 011.414 0z" clipRule="evenodd" />
-														</svg>
-														Logged
-													</span>
-												)}
+												<div className="flex gap-1">
+													{isWearLogged && (
+														<span className="flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-600">
+															<Shirt className="h-3 w-3" />
+															Worn
+														</span>
+													)}
+													{isWashLogged && (
+														<span className="flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-600">
+															<Droplets className="h-3 w-3" />
+															Washed
+														</span>
+													)}
+												</div>
 											</div>
-											<p className="text-xs text-gray-500">
-												{item.type}
-											</p>
+											<p className="text-xs text-gray-500">{item.type}</p>
 										</div>
 									</div>
 								</div>
@@ -226,19 +266,32 @@ export function AddToDateModal({ clothes, date, onAdd, onClose, disabledClothesI
 				</div>
 
 				{/* Footer */}
-				<div className="p-4 border-t flex gap-3 justify-between flex-shrink-0 bg-white">
-					<Button variant="outline" onClick={onClose} disabled={isSubmitting}>
+				<div className="p-4 border-t flex flex-col gap-3 flex-shrink-0 bg-white sm:flex-row sm:items-center sm:justify-between">
+					<Button variant="outline" onClick={onClose} disabled={submittingAction !== null}>
 						Cancel
 					</Button>
-					<Button
-						variant="outline"
-						onClick={handleSubmit}
-						disabled={selectedIds.size === 0 || isSubmitting}
-						className="text-black bg-white cursor-pointer"
-					>
-						<Plus className="w-4 h-4 mr-2" />
-						{isSubmitting ? 'Adding...' : `Add ${selectedIds.size} item${selectedIds.size === 1 ? '' : 's'}`}
-					</Button>
+					<div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+						<Button
+							type="button"
+							variant="outline"
+							onClick={() => handleSubmit('wear')}
+							disabled={!canSubmitWear || submittingAction !== null}
+							className="flex items-center gap-2"
+						>
+							<Shirt className="h-4 w-4" />
+							{submittingAction === 'wear' ? 'Saving...' : 'Mark Worn'}
+						</Button>
+						<Button
+							type="button"
+							variant="outline"
+							onClick={() => handleSubmit('wash')}
+							disabled={!canSubmitWash || submittingAction !== null}
+							className="flex items-center gap-2"
+						>
+							<Droplets className="h-4 w-4" />
+							{submittingAction === 'wash' ? 'Saving...' : 'Mark Washed'}
+						</Button>
+					</div>
 				</div>
 			</div>
 		</div>
