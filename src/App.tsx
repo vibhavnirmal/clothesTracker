@@ -364,25 +364,39 @@ export default function App() {
 	const sortedClothes = useMemo(() => {
 		const sorted = [...filteredClothes];
 
+		// First, sort by the selected criteria
 		switch (sortBy) {
 			case 'mostWorn':
-				return sorted.sort((a, b) => b.wearsSinceWash - a.wearsSinceWash);
+				sorted.sort((a, b) => b.wearsSinceWash - a.wearsSinceWash);
+				break;
 			case 'leastWorn':
-				return sorted.sort((a, b) => a.wearsSinceWash - b.wearsSinceWash);
+				sorted.sort((a, b) => a.wearsSinceWash - b.wearsSinceWash);
+				break;
 			case 'needsWash':
-				return sorted.sort((a, b) => {
+				sorted.sort((a, b) => {
 					// Items needing wash (3+) come first, then sort by wear count descending
 					const aNeeds = a.wearsSinceWash >= 3 ? 1 : 0;
 					const bNeeds = b.wearsSinceWash >= 3 ? 1 : 0;
 					if (aNeeds !== bNeeds) return bNeeds - aNeeds;
 					return b.wearsSinceWash - a.wearsSinceWash;
 				});
-
+				break;
 			case 'name':
 			default:
-				return sorted.sort((a, b) => a.name.localeCompare(b.name));
+				sorted.sort((a, b) => a.name.localeCompare(b.name));
+				break;
 		}
-	}, [filteredClothes, sortBy]);
+
+		// Then, move items worn today to the top while maintaining their relative order
+		return sorted.sort((a, b) => {
+			const aWornToday = wearStatus.get(a.id)?.wornToday ?? false;
+			const bWornToday = wearStatus.get(b.id)?.wornToday ?? false;
+			
+			if (aWornToday && !bWornToday) return -1;
+			if (!aWornToday && bWornToday) return 1;
+			return 0; // Maintain existing order for items in the same category
+		});
+	}, [filteredClothes, sortBy, wearStatus]);
 
 	const loadSnapshot = useCallback(async () => {
 		setIsLoading(true);
