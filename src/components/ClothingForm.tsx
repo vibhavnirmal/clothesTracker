@@ -97,6 +97,10 @@ export function ClothingForm({
     const [editedMaterials, setEditedMaterials] = useState<Set<string>>(() => new Set());
     const [showMadeInModal, setShowMadeInModal] = useState(false);
     const [madeInSearch, setMadeInSearch] = useState('');
+    const [sizeType, setSizeType] = useState<'standard' | 'waist-length' | 'numeric'>('standard');
+    const [waistSize, setWaistSize] = useState('');
+    const [lengthSize, setLengthSize] = useState('');
+    const [numericSize, setNumericSize] = useState('');
     const processingImageRef = useRef(false);
     const imageInputRef = useRef<HTMLInputElement | null>(null);
     const cameraInputRef = useRef<HTMLInputElement | null>(null);
@@ -108,6 +112,28 @@ export function ClothingForm({
 
     const remainingMaterialPercentage = 100 - totalMaterialPercentage;
     const hasMaterialTotalError = Math.abs(remainingMaterialPercentage) > 0.01;
+
+    // Initialize size fields from existing size value
+    useEffect(() => {
+        if (formData.size) {
+            // Check if it's waist-length format (e.g., "30W-32L")
+            const waistLengthMatch = formData.size.match(/^(\d+)W-(\d+)L$/i);
+            if (waistLengthMatch) {
+                setSizeType('waist-length');
+                setWaistSize(waistLengthMatch[1]);
+                setLengthSize(waistLengthMatch[2]);
+            }
+            // Check if it's numeric only
+            else if (/^\d+$/.test(formData.size)) {
+                setSizeType('numeric');
+                setNumericSize(formData.size);
+            }
+            // Otherwise it's standard
+            else if (SIZE_OPTIONS.includes(formData.size)) {
+                setSizeType('standard');
+            }
+        }
+    }, []);
 
     useEffect(() => {
         setEditedMaterials(prev => {
@@ -471,24 +497,135 @@ export function ClothingForm({
 
             <div className="space-y-2">
                 <Label htmlFor="size">Size</Label>
-                <Select
-                    value={formData.size || 'none'}
-                    onValueChange={(value: string) =>
-                        setFormData(prev => ({ ...prev, size: value === 'none' ? undefined : value }))
-                    }
-                >
-                    <SelectTrigger>
-                        <SelectValue placeholder="Select size (optional)" />
-                    </SelectTrigger>
-                    <SelectContent>
-                        <SelectItem value="none">No size</SelectItem>
-                        {SIZE_OPTIONS.map(size => (
-                            <SelectItem key={size} value={size}>
-                                {size}
-                            </SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
+                
+                {/* Size Type Selector */}
+                <div className="flex gap-2 mb-3">
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setSizeType('standard');
+                            setFormData(prev => ({ ...prev, size: undefined }));
+                        }}
+                        className={`flex-1 px-3 py-2 text-xs rounded-md border transition-colors`}
+                        style={{ ...sizeType === 'standard'
+                            ? { backgroundColor: '#2563eb', color: 'white', borderColor: '#2563eb' }
+                            : { backgroundColor: 'white', color: '#4b5563', borderColor: '#d1d5db', hover: { backgroundColor: '#f9fafb' } }
+                        }}
+                    >
+                        S-XL
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setSizeType('waist-length');
+                            setFormData(prev => ({ ...prev, size: undefined }));
+                            setWaistSize('');
+                            setLengthSize('');
+                        }}
+                        className={`flex-1 px-3 py-2 text-xs rounded-md border transition-colors`}
+                        style={{
+                            ...sizeType === 'waist-length'
+                                ? { backgroundColor: '#2563eb', color: 'white', borderColor: '#2563eb' }
+                                : { backgroundColor: 'white', color: '#4b5563', borderColor: '#d1d5db', hover: { backgroundColor: '#f9fafb' } }
+                        }}
+                    >
+                        W-L
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setSizeType('numeric');
+                            setFormData(prev => ({ ...prev, size: undefined }));
+                            setNumericSize('');
+                        }}
+                        className={`flex-1 px-3 py-2 text-xs rounded-md border transition-colors`}
+                        style={{ ...sizeType === 'numeric'
+                            ? { backgroundColor: '#2563eb', color: 'white', borderColor: '#2563eb' }
+                            : { backgroundColor: 'white', color: '#4b5563', borderColor: '#d1d5db', hover: { backgroundColor: '#f9fafb' } }
+                        }}
+                    >
+                        Numeric
+                    </button>
+                </div>
+
+                {/* Standard Size Select */}
+                {sizeType === 'standard' && (
+                    <Select
+                        value={formData.size || 'none'}
+                        onValueChange={(value: string) =>
+                            setFormData(prev => ({ ...prev, size: value === 'none' ? undefined : value }))
+                        }
+                    >
+                        <SelectTrigger>
+                            <SelectValue placeholder="Select size (optional)" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="none">No size</SelectItem>
+                            {SIZE_OPTIONS.map(size => (
+                                <SelectItem key={size} value={size}>
+                                    {size}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                )}
+
+                {/* Waist-Length Size Inputs */}
+                {sizeType === 'waist-length' && (
+                    <div className="flex gap-2 items-center">
+                        <div className="flex-1">
+                            <Input
+                                type="number"
+                                placeholder="Waist"
+                                value={waistSize}
+                                onChange={(e) => {
+                                    const value = e.target.value;
+                                    setWaistSize(value);
+                                    if (value && lengthSize) {
+                                        setFormData(prev => ({ ...prev, size: `${value}W-${lengthSize}L` }));
+                                    } else {
+                                        setFormData(prev => ({ ...prev, size: undefined }));
+                                    }
+                                }}
+                                min="0"
+                            />
+                        </div>
+                        <span className="text-gray-500 text-sm">W -</span>
+                        <div className="flex-1">
+                            <Input
+                                type="number"
+                                placeholder="Length"
+                                value={lengthSize}
+                                onChange={(e) => {
+                                    const value = e.target.value;
+                                    setLengthSize(value);
+                                    if (waistSize && value) {
+                                        setFormData(prev => ({ ...prev, size: `${waistSize}W-${value}L` }));
+                                    } else {
+                                        setFormData(prev => ({ ...prev, size: undefined }));
+                                    }
+                                }}
+                                min="0"
+                            />
+                        </div>
+                        <span className="text-gray-500 text-sm">L</span>
+                    </div>
+                )}
+
+                {/* Numeric Size Input */}
+                {sizeType === 'numeric' && (
+                    <Input
+                        type="number"
+                        placeholder="Size (e.g., 44)"
+                        value={numericSize}
+                        onChange={(e) => {
+                            const value = e.target.value;
+                            setNumericSize(value);
+                            setFormData(prev => ({ ...prev, size: value || undefined }));
+                        }}
+                        min="0"
+                    />
+                )}
             </div>
 
             <div className="space-y-2">

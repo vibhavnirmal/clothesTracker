@@ -1,15 +1,16 @@
 import { useMemo, useState, useEffect } from 'react';
-import { Activity, Shirt, X, Filter } from 'lucide-react';
-import type { ClothesItem, WearRecord, WashRecord } from '../types';
+import { Activity, Shirt, X, ChevronDown, ChevronUp } from 'lucide-react';
+import type { ClothesItem, WearRecord, WashRecord, ClothingType } from '../types';
 import { getColorName } from '../lib/colors';
+import { getIconPath } from '../lib/icons';
 import { ImageWithFallback } from './ImageWithFallback';
 import { Button } from './ui/button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 
 interface AnalysisProps {
 	clothes: ClothesItem[];
 	wearRecords: WearRecord[];
 	washRecords: WashRecord[];
+	types: ClothingType[];
 }
 
 interface ItemSummary {
@@ -19,9 +20,30 @@ interface ItemSummary {
 	averageWearsPerWash: number | null;
 }
 
-export function Analysis({ clothes, wearRecords, washRecords }: AnalysisProps) {
+export function Analysis({ clothes, wearRecords, washRecords, types }: AnalysisProps) {
 	const [selectedImage, setSelectedImage] = useState<{ src: string; name: string } | null>(null);
-	const [materialFilter, setMaterialFilter] = useState<string>('all');
+	const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
+	
+	// Create a map for quick type icon lookup
+	const typeIconMap = useMemo(() => {
+		const map = new Map<string, string | null>();
+		types.forEach(type => {
+			map.set(type.name, type.icon || null);
+		});
+		return map;
+	}, [types]);
+	
+	const toggleSection = (sectionId: string) => {
+		setExpandedSections(prev => {
+			const next = new Set(prev);
+			if (next.has(sectionId)) {
+				next.delete(sectionId);
+			} else {
+				next.add(sectionId);
+			}
+			return next;
+		});
+	};
 	
 	// Prevent body scroll when modal is open
 	useEffect(() => {
@@ -35,15 +57,7 @@ export function Analysis({ clothes, wearRecords, washRecords }: AnalysisProps) {
 		};
 	}, [selectedImage]);
 	
-	const { totals, perItemSummaries, topWorn, topWashed, typeBreakdown, materialBreakdown, availableMaterials } = useMemo(() => {
-		// Filter clothes by selected material
-		const filteredClothes = materialFilter === 'all' 
-			? clothes 
-			: clothes.filter(item => {
-				if (!item.materials) return false;
-				return Object.keys(item.materials).some(mat => mat.toLowerCase() === materialFilter.toLowerCase());
-			});
-
+	const { totals, perItemSummaries, topWorn, topWashed, typeBreakdown, materialBreakdown, colorAnalysis } = useMemo(() => {
 		const wearCountMap = new Map<string, number>();
 		const washCountMap = new Map<string, number>();
 
@@ -55,7 +69,7 @@ export function Analysis({ clothes, wearRecords, washRecords }: AnalysisProps) {
 			washCountMap.set(record.clothesId, (washCountMap.get(record.clothesId) ?? 0) + 1);
 		});
 
-		const perItemSummaries: ItemSummary[] = filteredClothes.map(item => {
+		const perItemSummaries: ItemSummary[] = clothes.map(item => {
 			const totalWearCount = wearCountMap.get(item.id) ?? 0;
 			const totalWashCount = washCountMap.get(item.id) ?? 0;
 			const averageWearsPerWash = totalWashCount > 0
@@ -82,7 +96,7 @@ export function Analysis({ clothes, wearRecords, washRecords }: AnalysisProps) {
 
 		// Calculate type breakdown
 		const typeCountMap = new Map<string, number>();
-		filteredClothes.forEach(item => {
+		clothes.forEach(item => {
 			const type = item.type || 'Uncategorized';
 			typeCountMap.set(type, (typeCountMap.get(type) ?? 0) + 1);
 		});
@@ -117,12 +131,34 @@ export function Analysis({ clothes, wearRecords, washRecords }: AnalysisProps) {
 
 		const maxMaterialCount = Math.max(...materialBreakdownArray.map(m => m.count), 1);
 
-		// Get all unique materials for filter dropdown
-		const allMaterials = Array.from(materialCountMap.keys()).sort();
+		// Calculate color analysis
+		const colorWearMap = new Map<string, { count: number; totalWears: number; itemIds: Set<string> }>();
+		clothes.forEach(item => {
+			const colorName = getColorName(item.color);
+			const wearCount = wearCountMap.get(item.id) ?? 0;
+			const existing = colorWearMap.get(colorName) || { count: 0, totalWears: 0, itemIds: new Set() };
+			colorWearMap.set(colorName, {
+				count: existing.count + 1,
+				totalWears: existing.totalWears + wearCount,
+				itemIds: new Set([...existing.itemIds, item.id]),
+			});
+		});
+
+		const colorAnalysisArray = Array.from(colorWearMap.entries())
+			.map(([colorName, data]) => ({
+				colorName,
+				colorHex: clothes.find(item => getColorName(item.color) === colorName)?.color || '#9CA3AF',
+				itemCount: data.count,
+				totalWears: data.totalWears,
+				averageWearsPerItem: data.count > 0 ? Math.round(data.totalWears / data.count) : 0,
+			}))
+			.sort((a, b) => b.totalWears - a.totalWears);
+
+		const maxColorWears = Math.max(...colorAnalysisArray.map(c => c.totalWears), 1);
 
 		return {
 			totals: {
-				uniqueItems: filteredClothes.length,
+				uniqueItems: clothes.length,
 				totalWearEntries: wearRecords.length,
 				totalWashEntries: washRecords.length,
 				neverWashedCount: perItemSummaries.filter(summary => summary.totalWashCount === 0).length,
@@ -133,7 +169,7 @@ export function Analysis({ clothes, wearRecords, washRecords }: AnalysisProps) {
 			topWashed: topWashedItems,
 			typeBreakdown: typeBreakdownArray.map(item => ({
 				...item,
-				percentage: Math.round((item.count / filteredClothes.length) * 100),
+				percentage: Math.round((item.count / clothes.length) * 100),
 				barWidth: Math.round((item.count / maxTypeCount) * 100),
 			})),
 			materialBreakdown: materialBreakdownArray.map(item => ({
@@ -141,14 +177,13 @@ export function Analysis({ clothes, wearRecords, washRecords }: AnalysisProps) {
 				percentage: Math.round((item.count / clothes.length) * 100),
 				barWidth: Math.round((item.count / maxMaterialCount) * 100),
 			})),
-			availableMaterials: allMaterials,
+			colorAnalysis: colorAnalysisArray.map(item => ({
+				...item,
+				percentage: Math.round((item.itemCount / clothes.length) * 100),
+				barWidth: Math.round((item.totalWears / maxColorWears) * 100),
+			})),
 		};
-	}, [clothes, wearRecords, washRecords, materialFilter]);
-
-	// // Debug log
-	// useEffect(() => {
-	// 	console.log('Type Breakdown Data:', typeBreakdown);
-	// }, [typeBreakdown]);
+	}, [clothes, wearRecords, washRecords]);
 
 	type SortColumn = 'name' | 'type' | 'color' | 'totalWearCount' | 'totalWashCount' | 'averageWearsPerWash' | 'wearsSinceWash';
 	type SortDirection = 'asc' | 'desc';
@@ -236,6 +271,7 @@ export function Analysis({ clothes, wearRecords, washRecords }: AnalysisProps) {
 					</h1>
 				</header> */}
 
+				{/* Summary Cards */}
 				<section className="grid grid-cols-1 gap-3 mb-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
 					<div className="flex justify-between rounded-xl border border-blue-100 bg-blue-50/70 p-4">
 						<div>
@@ -274,86 +310,158 @@ export function Analysis({ clothes, wearRecords, washRecords }: AnalysisProps) {
           </div> */}
 				</section>
 
-				{/* Material Filter */}
-				{availableMaterials.length > 0 && (
-					<section className="mb-4">
-						<div className="rounded-xl border border-gray-200 bg-white p-4">
-							<div className="flex items-center justify-between gap-3 flex-wrap">
-								<div className="flex items-center gap-2 text-gray-700">
-									<Filter className="h-4 w-4" />
-									<p className="text-sm font-semibold">Filter by Material</p>
-								</div>
-								<Select value={materialFilter} onValueChange={setMaterialFilter}>
-									<SelectTrigger className="w-[180px]">
-										<SelectValue placeholder="All Materials" />
-									</SelectTrigger>
-									<SelectContent>
-										<SelectItem value="all">All Materials</SelectItem>
-										{availableMaterials.map(material => (
-											<SelectItem key={material} value={material}>
-												{material}
-											</SelectItem>
-										))}
-									</SelectContent>
-								</Select>
-							</div>
-							{materialFilter !== 'all' && (
-								<div className="mt-3 flex items-center gap-2">
-									<span className="text-xs text-gray-500">
-										Showing {totals.uniqueItems} item{totals.uniqueItems !== 1 ? 's' : ''} with {materialFilter}
-									</span>
-									<button
-										onClick={() => setMaterialFilter('all')}
-										className="text-xs text-blue-600 hover:text-blue-700 font-medium"
-									>
-										Clear filter
-									</button>
-								</div>
-							)}
-						</div>
-					</section>
-				)}
+				{/* Hint message */}
+				<div className="flex items-center justify-center gap-2 py-2 text-xs text-gray-500 italic">
+					<ChevronDown className="h-3 w-3" />
+					<span>Tap sections below to view detailed insights</span>
+				</div>
 
 				{/* Wardrobe Composition by Type */}
 				<section className="mb-4">
-					<div className="rounded-xl border border-purple-100 bg-white p-4">
-						<div className="flex items-center gap-2 text-purple-600 mb-4">
-							<Shirt className="h-4 w-4" />
-							<p className="text-sm font-semibold uppercase tracking-wide">Wardrobe Composition by Type</p>
-						</div>
+					<div className="rounded-xl border border-purple-100 bg-white">
+						<button
+							onClick={() => toggleSection('composition')}
+							className="w-full p-4 flex items-center justify-between hover:bg-purple-50/30 transition-colors"
+						>
+							<div className="flex items-center gap-2">
+								<Shirt className="h-4 w-4 text-purple-600" />
+								<div style={{ textAlign: "left", paddingLeft: '5px' }}>
+									<p className="text-sm font-semibold uppercase tracking-wide text-purple-600">Wardrobe Composition by Type</p>
+									<p className="text-xs text-gray-500 mt-0.5">See breakdown of clothing types in your wardrobe</p>
+								</div>
+							</div>
+							{expandedSections.has('composition') ? (
+								<ChevronUp className="h-5 w-5 text-purple-600 flex-shrink-0" />
+							) : (
+								<ChevronDown className="h-5 w-5 text-purple-600 flex-shrink-0" />
+							)}
+						</button>
 						
-						{typeBreakdown.length === 0 ? (
-							<p className="text-xs text-gray-500">No clothes added yet.</p>
-						) : (
-							<div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-								{typeBreakdown.map(({ type, count, percentage, barWidth }) => (
-									<div key={type} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-										<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '14px' }}>
-											<span style={{ fontWeight: '500', color: '#374151' }}>{type}</span>
-											<div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-												<span style={{ fontSize: '12px', color: '#6B7280' }}>{percentage}%</span>
-												<span style={{ fontSize: '14px', fontWeight: '600', color: '#111827' }}>{count}</span>
-											</div>
-										</div>
-										<div style={{ 
-											width: '100%', 
-											height: '8px', 
-											backgroundColor: '#F3F4F6', 
-											borderRadius: '9999px',
-											overflow: 'hidden'
-										}}>
-											<div
-												style={{ 
-													height: '100%', 
-													background: 'linear-gradient(to right, #A855F7, #C084FC)',
-													borderRadius: '9999px',
-													width: `${barWidth}%`,
-													transition: 'width 0.5s ease-out'
-												}}
-											/>
-										</div>
+						{expandedSections.has('composition') && (
+							<div className="px-4 pb-4">
+								{typeBreakdown.length === 0 ? (
+									<p className="text-xs text-gray-500">No clothes added yet.</p>
+								) : (
+									<div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+										{typeBreakdown.map(({ type, count, percentage, barWidth }) => {
+											const iconPath = getIconPath(typeIconMap.get(type) || null);
+											return (
+												<div key={type} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+													<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '14px' }}>
+														<div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+															{iconPath && (
+																<img src={iconPath} alt="" style={{ width: '18px', height: '18px', flexShrink: 0 }} />
+															)}
+															<span style={{ fontWeight: '500', color: '#374151' }}>{type}</span>
+														</div>
+														<div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+															<span style={{ fontSize: '12px', color: '#6B7280' }}>{percentage}%</span>
+															<span style={{ fontSize: '14px', fontWeight: '600', color: '#111827' }}>{count}</span>
+														</div>
+													</div>
+													<div style={{ 
+														width: '100%', 
+														height: '8px', 
+														backgroundColor: '#F3F4F6', 
+														borderRadius: '9999px',
+														overflow: 'hidden'
+													}}>
+														<div
+															style={{ 
+																height: '100%', 
+																background: 'linear-gradient(to right, #A855F7, #C084FC)',
+																borderRadius: '9999px',
+																width: `${barWidth}%`,
+																transition: 'width 0.5s ease-out'
+															}}
+														/>
+													</div>
+												</div>
+											);
+										})}
 									</div>
-								))}
+								)}
+							</div>
+						)}
+					</div>
+				</section>
+
+				{/* Color Analysis */}
+				<section className="mb-4">
+					<div className="rounded-xl border border-pink-100 bg-white">
+						<button
+							onClick={() => toggleSection('colors')}
+							className="w-full p-4 flex items-center justify-between hover:bg-pink-50/30 transition-colors"
+						>
+							<div className="flex items-center gap-2">
+								<Activity className="h-4 w-4 text-pink-600" />
+								<div style={{ textAlign: "left", paddingLeft: '5px' }}>
+									<p className="text-sm font-semibold uppercase tracking-wide text-pink-600">Color Analysis</p>
+									<p className="text-xs text-gray-500 mt-0.5">Discover which colors you wear most often</p>
+								</div>
+							</div>
+							{expandedSections.has('colors') ? (
+								<ChevronUp className="h-5 w-5 text-pink-600 flex-shrink-0" />
+							) : (
+								<ChevronDown className="h-5 w-5 text-pink-600 flex-shrink-0" />
+							)}
+						</button>
+						
+						{expandedSections.has('colors') && (
+							<div className="px-4 pb-4">
+								{colorAnalysis.length === 0 ? (
+									<p className="text-xs text-gray-500">No clothes added yet.</p>
+								) : (
+									<div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+										{colorAnalysis.map(({ colorName, colorHex, itemCount, totalWears, averageWearsPerItem, percentage, barWidth }) => (
+											<div key={colorName} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+												<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '14px' }}>
+													<div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+														<span
+															style={{
+																width: '16px',
+																height: '16px',
+																borderRadius: '50%',
+																backgroundColor: colorHex,
+																border: '2px solid #E5E7EB',
+																flexShrink: 0,
+															}}
+														/>
+														<span style={{ fontWeight: '500', color: '#374151' }}>{colorName}</span>
+													</div>
+													<div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+														<span style={{ fontSize: '11px', color: '#6B7280' }}>~{averageWearsPerItem} wears/item</span>
+														<span style={{ fontSize: '12px', color: '#6B7280' }}>{percentage}%</span>
+														<span style={{ fontSize: '14px', fontWeight: '600', color: '#111827' }}>{totalWears} wears</span>
+													</div>
+												</div>
+												<div style={{ 
+													width: '100%', 
+													height: '8px', 
+													backgroundColor: '#F3F4F6', 
+													borderRadius: '9999px',
+													overflow: 'hidden'
+												}}>
+													<div
+														style={{ 
+															height: '100%', 
+															backgroundColor: colorHex,
+															borderRadius: '9999px',
+															width: `${barWidth}%`,
+															transition: 'width 0.5s ease-out',
+															opacity: 0.8,
+														}}
+													/>
+												</div>
+												<div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
+													<span style={{ fontSize: '11px', color: '#9CA3AF' }}>
+														{itemCount} item{itemCount !== 1 ? 's' : ''} in wardrobe
+													</span>
+												</div>
+											</div>
+										))}
+									</div>
+								)}
 							</div>
 						)}
 					</div>
@@ -361,95 +469,137 @@ export function Analysis({ clothes, wearRecords, washRecords }: AnalysisProps) {
 
 				{/* Material Distribution */}
 				<section className="mb-4">
-					<div className="rounded-xl border border-indigo-100 bg-white p-4">
-						<div className="flex items-center gap-2 text-indigo-600 mb-4">
-							<Activity className="h-4 w-4" />
-							<p className="text-sm font-semibold uppercase tracking-wide">Material Distribution</p>
-						</div>
+					<div className="rounded-xl border border-indigo-100 bg-white">
+						<button
+							onClick={() => toggleSection('materials')}
+							className="w-full p-4 flex items-center justify-between hover:bg-indigo-50/30 transition-colors"
+						>
+							<div className="flex items-center gap-2">
+								<Activity className="h-4 w-4 text-indigo-600" />
+								<div style={{ textAlign: "left", paddingLeft: '5px' }}>
+									<p className="text-sm font-semibold uppercase tracking-wide text-indigo-600">Material Distribution</p>
+									<p className="text-xs text-gray-500 mt-0.5">View fabric composition across your wardrobe</p>
+								</div>
+							</div>
+							{expandedSections.has('materials') ? (
+								<ChevronUp className="h-5 w-5 text-indigo-600 flex-shrink-0" />
+							) : (
+								<ChevronDown className="h-5 w-5 text-indigo-600 flex-shrink-0" />
+							)}
+						</button>
 						
-						{materialBreakdown.length === 0 ? (
-							<p className="text-xs text-gray-500">No material data available. Add materials to your clothes.</p>
-						) : (
-							<div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-								{materialBreakdown.map(({ material, count, percentage, averagePercentage, barWidth }) => (
-									<div key={material} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-										<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '14px' }}>
-											<span style={{ fontWeight: '500', color: '#374151' }}>{material}</span>
-											<div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-												<span style={{ fontSize: '11px', color: '#6B7280' }}>~{averagePercentage}% avg</span>
-												<span style={{ fontSize: '12px', color: '#6B7280' }}>{percentage}%</span>
-												<span style={{ fontSize: '14px', fontWeight: '600', color: '#111827' }}>{count}</span>
-											</div>
-										</div>
-										<div style={{ 
-											width: '100%', 
-											height: '8px', 
-											backgroundColor: '#F3F4F6', 
-											borderRadius: '9999px',
-											overflow: 'hidden'
-										}}>
-											<div
-												style={{ 
-													height: '100%', 
-													background: 'linear-gradient(to right, #6366F1, #818CF8)',
+						{expandedSections.has('materials') && (
+							<div className="px-4 pb-4">
+								{materialBreakdown.length === 0 ? (
+									<p className="text-xs text-gray-500">No material data available. Add materials to your clothes.</p>
+								) : (
+									<div style={{ display: 'flex', flexDirection: 'column', gap: '12px', paddingBottom: '20px' }}>
+										{materialBreakdown.map(({ material, count, percentage, averagePercentage, barWidth }) => (
+											<div key={material} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+												<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '14px' }}>
+													<span style={{ fontWeight: '500', color: '#374151' }}>{material}</span>
+													<div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+														<span style={{ fontSize: '11px', color: '#6B7280' }}>~{averagePercentage}% avg</span>
+														<span style={{ fontSize: '12px', color: '#6B7280' }}>{percentage}%</span>
+														<span style={{ fontSize: '14px', fontWeight: '600', color: '#111827' }}>{count}</span>
+													</div>
+												</div>
+												<div style={{ 
+													width: '100%', 
+													height: '8px', 
+													backgroundColor: '#F3F4F6', 
 													borderRadius: '9999px',
-													width: `${barWidth}%`,
-													transition: 'width 0.5s ease-out'
-												}}
-											/>
-										</div>
+													overflow: 'hidden'
+												}}>
+													<div
+														style={{ 
+															height: '100%', 
+															background: 'linear-gradient(to right, #6366F1, #818CF8)',
+															borderRadius: '9999px',
+															width: `${barWidth}%`,
+															transition: 'width 0.5s ease-out'
+														}}
+													/>
+												</div>
+											</div>
+										))}
 									</div>
-								))}
+								)}
 							</div>
 						)}
 					</div>
 				</section>
 
 				<section className="mb-4">
-					<div className="rounded-xl border border-blue-100 bg-white p-4">
-						<div className="flex items-center gap-2 text-blue-600" style={{ marginBottom: '0.75rem' }}>
-							<Shirt className="h-4 w-4" />
-							<p className="text-sm font-semibold uppercase tracking-wide">Top {topWorn.length} worn items</p>
-						</div>
-						{topWorn.length === 0 ? (
-							<p className="mt-3 text-xs text-gray-500">No wear activity yet.</p>
-						) : (
-							<ul className="mt-3 grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
-								{topWorn.map(({ item, totalWearCount }) => (
-									<li key={item.id} className="rounded-lg border border-blue-50 bg-blue-50/60 px-3 py-2">
-										<div className="flex items-center gap-3">
-											{item.image ? (
-												<button
-													type="button"
-													onClick={() => setSelectedImage({ src: item.image!, name: item.name })}
-													className="h-12 w-12 rounded-md flex-shrink-0 overflow-hidden cursor-pointer hover:opacity-80 transition-opacity"
-												>
-													<ImageWithFallback
-														src={item.image}
-														alt={item.name}
-														className="h-full w-full object-cover"
-													/>
-												</button>
-											) : (
-												<div
-													className="h-12 w-12 rounded-md flex items-center justify-center text-white text-xs font-semibold flex-shrink-0"
-													style={{ backgroundColor: item.color || '#9CA3AF' }}
-												>
-													{item.name.split(' ').map(word => word[0]).join('').slice(0, 2).toUpperCase()}
-												</div>
-											)}
-											<div className="flex-1 min-w-0">
-												<p className="text-sm font-medium text-gray-900 truncate">{item.name}</p>
-												<p className="text-xs text-gray-500">
-													{item.type} • {totalWearCount} wear{totalWearCount !== 1 ? 's' : ''}
-												</p>
-											</div>
-										</div>
-									</li>
-								))}
-							</ul>
+					<div className="rounded-xl border border-blue-100 bg-white">
+						<button
+							onClick={() => toggleSection('topworn')}
+							className="w-full p-4 flex items-center justify-between hover:bg-blue-50/30 transition-colors"
+						>
+							<div className="flex items-center gap-2">
+								<Shirt className="h-4 w-4" />
+								<div style={{ textAlign: "left", paddingLeft: '5px' }}>
+									<p className="text-sm font-semibold uppercase tracking-wide">Top {topWorn.length} Worn Items</p>
+									<p className="text-xs text-gray-500 mt-0.5">Your most frequently worn clothing items</p>
+								</div>
+							</div>
+							{expandedSections.has('topworn') ? (
+								<ChevronUp className="h-5 w-5 flex-shrink-0" />
+							) : (
+								<ChevronDown className="h-5 w-5 flex-shrink-0" />
+							)}
+						</button>
+						
+						{expandedSections.has('topworn') && (
+							<div className="px-4 pb-4">
+								{topWorn.length === 0 ? (
+									<p className="text-xs text-gray-500">No wear activity yet.</p>
+								) : (
+									<ul className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', paddingBottom: '12px'}}>
+										{topWorn.map(({ item, totalWearCount }) => {
+											const iconPath = getIconPath(typeIconMap.get(item.type) || null);
+											return (
+												<li key={item.id} className="rounded-lg border border-blue-50 bg-blue-50/60 px-3 py-2">
+													<div className="flex items-center gap-3">
+														{item.image ? (
+															<button
+																type="button"
+																onClick={() => setSelectedImage({ src: item.image!, name: item.name })}
+																className="h-12 w-12 rounded-md flex-shrink-0 overflow-hidden cursor-pointer hover:opacity-80 transition-opacity"
+															>
+																<ImageWithFallback
+																	src={item.image}
+																	alt={item.name}
+																	className="h-full w-full rounded-md object-cover"
+																/>
+															</button>
+														) : (
+															<div
+																className="h-12 w-12 rounded-md flex items-center justify-center text-white text-xs font-semibold flex-shrink-0"
+																style={{ backgroundColor: item.color || '#9CA3AF' }}
+															>
+																{item.name.split(' ').map(word => word[0]).join('').slice(0, 2).toUpperCase()}
+															</div>
+														)}
+														<div className="flex-1 min-w-0">
+															<p className="text-sm font-medium text-gray-900 truncate">{item.name}</p>
+															<div className="flex items-center gap-1 text-xs text-gray-500">
+																{iconPath && (
+																	<img src={iconPath} alt="" className="w-3 h-3 flex-shrink-0" />
+																)}
+																<span>{item.type}</span>
+																<span>•</span>
+																<span>{totalWearCount} wear{totalWearCount !== 1 ? 's' : ''}</span>
+															</div>
+														</div>
+													</div>
+												</li>
+											);
+										})}
+									</ul>
+								)}
+							</div>
 						)}
-
 					</div>
 				</section>
 
@@ -506,27 +656,37 @@ export function Analysis({ clothes, wearRecords, washRecords }: AnalysisProps) {
 									</tr>
 								</thead>
 								<tbody className="divide-y divide-gray-100">
-									{sortedPerItem.map(({ item, totalWearCount, totalWashCount, averageWearsPerWash }) => (
-										<tr key={item.id} className="text-sm text-gray-700">
-											<td className="px-3 py-3">
-												<div className="flex items-center gap-2">
-													<span
-														className="h-3 w-3 rounded-full border border-gray-300"
-														style={{ backgroundColor: item.color || '#e5e7eb' }}
-													/>
-													<span className="truncate" style={{ maxWidth: '6rem' }}>{item.name}</span>
-												</div>
-											</td>
-											<td className="px-3 py-3 text-gray-500 truncate" style={{ maxWidth: '6rem' }}>{item.type}</td>
-											<td className="px-3 py-3 text-gray-500">{getColorName(item.color)}</td>
-											<td className="px-3 py-3 text-right font-medium">{totalWearCount}</td>
-											<td className="px-3 py-3 text-right font-medium">{totalWashCount}</td>
-											<td className="px-3 py-3 text-right text-gray-500">
-												{averageWearsPerWash === null ? '—' : averageWearsPerWash}
-											</td>
-											<td className="px-3 py-3 text-right text-gray-500">{item.wearsSinceWash}</td>
-										</tr>
-									))}
+									{sortedPerItem.map(({ item, totalWearCount, totalWashCount, averageWearsPerWash }) => {
+										const iconPath = getIconPath(typeIconMap.get(item.type) || null);
+										return (
+											<tr key={item.id} className="text-sm text-gray-700">
+												<td className="px-3 py-3">
+													<div className="flex items-center gap-2">
+														<span
+															className="h-3 w-3 rounded-full border border-gray-300"
+															style={{ backgroundColor: item.color || '#e5e7eb' }}
+														/>
+														<span className="truncate" style={{ maxWidth: '6rem' }}>{item.name}</span>
+													</div>
+												</td>
+												<td className="px-3 py-3 text-gray-500 truncate" style={{ maxWidth: '6rem' }}>
+													<div className="flex items-center gap-2">
+														{iconPath && (
+															<img src={iconPath} alt="" className="w-4 h-4 flex-shrink-0" />
+														)}
+														<span className="truncate">{item.type}</span>
+													</div>
+												</td>
+												<td className="px-3 py-3 text-gray-500">{getColorName(item.color)}</td>
+												<td className="px-3 py-3 text-right font-medium">{totalWearCount}</td>
+												<td className="px-3 py-3 text-right font-medium">{totalWashCount}</td>
+												<td className="px-3 py-3 text-right text-gray-500">
+													{averageWearsPerWash === null ? '—' : averageWearsPerWash}
+												</td>
+												<td className="px-3 py-3 text-right text-gray-500">{item.wearsSinceWash}</td>
+											</tr>
+										);
+									})}
 								</tbody>
 							</table>
 						</div>

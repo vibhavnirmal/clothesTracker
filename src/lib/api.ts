@@ -89,8 +89,15 @@ export function deleteMaterialType(name: string): JsonResponse<{ materials: stri
   });
 }
 
-export function recordWear(clothesIds: string[], date?: string): JsonResponse<Pick<AppSnapshot, 'clothes' | 'wearRecords'>> {
-  return request('/wears', {
+export function recordWear(clothesIds: string[], date?: string, oldWearThreshold?: number): JsonResponse<Pick<AppSnapshot, 'clothes' | 'wearRecords'>> {
+  const params = new URLSearchParams();
+  if (oldWearThreshold !== undefined) {
+    params.append('oldWearThreshold', oldWearThreshold.toString());
+  }
+  const queryString = params.toString();
+  const url = `/wears${queryString ? `?${queryString}` : ''}`;
+  
+  return request(url, {
     method: 'POST',
     body: JSON.stringify({ clothesIds, date }),
   });
@@ -125,5 +132,24 @@ export function undoWash(clothesId: string, date?: string): JsonResponse<Pick<Ap
 export function purgeDatabase(): JsonResponse<Pick<AppSnapshot, 'clothes' | 'wearRecords' | 'washRecords'>> {
   return request('/purge', {
     method: 'POST',
+  });
+}
+
+export function toggleLaundryBag(clothesId: string, inLaundryBag: boolean): JsonResponse<{ item: ClothesItem }> {
+  return request(`/clothes/${clothesId}/laundry-bag`, {
+    method: 'PUT',
+    body: JSON.stringify({ inLaundryBag }),
+  });
+}
+
+export function washLaundryBag(date?: string): JsonResponse<Pick<AppSnapshot, 'clothes' | 'washRecords'>> {
+  const payload: { date?: string } = {};
+  if (date) {
+    payload.date = date;
+  }
+
+  return request('/laundry-bag/wash', {
+    method: 'POST',
+    body: JSON.stringify(payload),
   });
 }

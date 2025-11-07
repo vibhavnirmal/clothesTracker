@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { CogIcon, Plus, Trash2, AlertTriangle } from 'lucide-react';
+import { CogIcon, Plus, Trash2, AlertTriangle, Pencil, Check } from 'lucide-react';
 import { Button } from './ui/button';
 import type { SettingsProps } from './settings/types';
 import { ClothingTypesSection } from './settings/ClothingTypesSection';
@@ -18,9 +18,14 @@ export function Settings({
   typeUsage,
   onCreateClothing,
   onPurgeDatabase,
+  oldWearThresholdDays,
+  onOldWearThresholdChange,
 }: SettingsProps) {
   const [showPurgeDialog, setShowPurgeDialog] = useState(false);
   const [isPurging, setIsPurging] = useState(false);
+  const [isEditingThreshold, setIsEditingThreshold] = useState(false);
+  const [tempThreshold, setTempThreshold] = useState(oldWearThresholdDays);
+  const [justSaved, setJustSaved] = useState(false);
 
   // All hooks must be called before any conditional returns
   const sortedTypes = useMemo(() => [...types].sort((a, b) => a.name.localeCompare(b.name)), [types]);
@@ -112,6 +117,73 @@ export function Settings({
                 Manage types
               </Button>
             </div>
+          </div>
+        </section>
+
+        <section className="rounded-xl border border-gray-100 bg-white p-4 mb-4">
+          <div className="flex flex-col gap-3">
+            <div>
+              <h2 className="text-sm font-semibold text-gray-900">Old Wear Threshold</h2>
+              <p className="text-xs text-gray-500">
+                Photos uploaded from more than this many days ago won't count toward "wears since wash".
+              </p>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <label htmlFor="old-wear-threshold" className="text-xs text-gray-700">
+                Days threshold:
+              </label>
+              <div className="flex items-center gap-2">
+                {isEditingThreshold ? (
+                  <>
+                    <input
+                      id="old-wear-threshold"
+                      type="number"
+                      min="0"
+                      max="365"
+                      value={tempThreshold}
+                      onChange={(e) => {
+                        const value = parseInt(e.target.value, 10);
+                        if (!isNaN(value) && value >= 0 && value <= 365) {
+                          setTempThreshold(value);
+                        }
+                      }}
+                      className="w-20 px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      autoFocus
+                    />
+                    <button
+                      onClick={() => {
+                        onOldWearThresholdChange(tempThreshold);
+                        setIsEditingThreshold(false);
+                        setJustSaved(true);
+                        setTimeout(() => setJustSaved(false), 2000);
+                      }}                      
+                      className="flex items-center gap-1 px-3 py-2 rounded-md text-xs font-medium"
+                    >
+                      <Check size={14} />
+                      {justSaved ? 'Saved' : 'Save'}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-sm font-medium text-gray-900">{oldWearThresholdDays} days</span>
+                    <button
+                      onClick={() => {
+                        setIsEditingThreshold(true);
+                        setTempThreshold(oldWearThresholdDays);
+                        setJustSaved(false);
+                      }}
+                      className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-md transition-colors"
+                      title="Edit threshold"
+                    >
+                      <Pencil size={16} />
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+            <p className="text-xs text-gray-500 italic">
+              Default: 10 days. Set to 0 to count all wears regardless of date.
+            </p>
           </div>
         </section>
 

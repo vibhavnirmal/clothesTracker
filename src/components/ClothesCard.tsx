@@ -1,5 +1,5 @@
 import React from 'react';
-import { Pencil } from 'lucide-react';
+import { Pencil, ShoppingBag, Circle, Check } from 'lucide-react';
 import { Checkbox } from './ui/checkbox';
 import { ImageWithFallback } from './ImageWithFallback';
 import type { ClothesItem } from '../types';
@@ -16,6 +16,7 @@ interface ClothesCardProps {
 	lastWearDate?: string;
 	onEdit?: () => void;
 	typeIcon?: string | null;
+	onToggleLaundryBag?: (inBag: boolean) => void;
 }
 
 export function ClothesCard({
@@ -27,8 +28,10 @@ export function ClothesCard({
 	lastWearDate,
 	onEdit,
 	typeIcon,
+	onToggleLaundryBag,
 }: ClothesCardProps) {
 	const getInitials = (name: string) => {
+		if (!name) return '';
 		return name.split(' ').map(word => word[0]).join('').toUpperCase().slice(0, 2);
 	};
 
@@ -37,7 +40,7 @@ export function ClothesCard({
 			'bg-blue-500', 'bg-green-500', 'bg-purple-500', 'bg-pink-500',
 			'bg-indigo-500', 'bg-red-500', 'bg-yellow-500', 'bg-gray-500'
 		];
-		const index = name.length % colors.length;
+		const index = (name?.length || 0) % colors.length;
 		return colors[index];
 	};
 
@@ -72,121 +75,150 @@ export function ClothesCard({
 	};
 
 	return (
-		<div
-			className={`bg-white relative transition-all cursor-pointer`}
-			style={{
-				borderRadius: selected ? '0.25rem' : '0',
-				backgroundColor: selected ? '#f8f8f8ff' : 'white',
-			}}
-			role="button"
-			tabIndex={0}
-			aria-pressed={isChecked}
-			onClick={handleCardClick}
-			onKeyDown={handleCardKeyDown}
-		>
-			{onEdit && (
-				<button
-					type="button"
-					onClick={event => {
-						event.stopPropagation();
-						onEdit();
-					}}
-					className="absolute bottom-0 right-0 items-center justify-center p-1 text-gray-500 transition hover:border-gray-300 hover:text-gray-700"
-					aria-label={`Edit ${item.name}`}
-				>
-					<Pencil className="h-3.5 w-3.5" />
-				</button>
-			)}
+		<div className={`bg-white relative overflow-hidden`}
+			style={{ ...item.inLaundryBag ? { opacity: 0.8 } : {} }}>
+			{/* Image Section - Instagram style */}
+			<div 
+				className={`relative w-full overflow-hidden ${!item.inLaundryBag ? 'cursor-pointer' : 'cursor-not-allowed'}`}
+				style={{ height: '200px' }}
+				onClick={!item.inLaundryBag ? handleCardClick : undefined}
+				role="button"
+				tabIndex={item.inLaundryBag ? -1 : 0}
+				aria-pressed={isChecked}
+				aria-disabled={item.inLaundryBag}
+				onKeyDown={!item.inLaundryBag ? handleCardKeyDown : undefined}
+			>
+				{/* Laundry bag badge - top left */}
+				{item.inLaundryBag && (
+					<div className="absolute top-2 left-2 z-10 p-2 rounded-sm shadow-md" style={{ backgroundColor: "white", padding: "2px", color: "black"}}>
+						<ShoppingBag className="h-5 w-5" />
+					</div>
+				)}
 
+				{/* Wear count badge - top right */}
+				{item.wearsSinceWash > 0 && (
+					<div className={`absolute top-2 right-2 z-10 ${badgeColor} text-white px-3 py-1 shadow-md rounded-sm font-sm`}>
+						{item.wearsSinceWash} wear{item.wearsSinceWash === 1 ? '' : 's'}
+					</div>
+				)}
 
-			{/* Image or initials placeholder */}
-			<div className="">
+				{/* Selected checkmark - center overlay when selected */}
+				{isChecked && (
+					<div className="absolute inset-0 bg-black bg-opacity-30 flex items-center justify-center z-10">
+						<div className="bg-yellow-400 rounded-full p-3">
+							<svg className="w-8 h-8 text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+							</svg>
+						</div>
+					</div>
+				)}
+
+				{/* Main image */}
 				{item.image ? (
 					<ImageWithFallback
 						src={item.image}
 						alt={item.name}
-						className="w-full h-32 object-cover"
-						style={{ borderTopLeftRadius: '0.25rem', borderTopRightRadius: '0.25rem' }}
+						className="w-full h-full object-cover"
+						style={{ width: '100%', height: '200px', objectFit: 'cover' }}
 					/>
 				) : (
 					<div
-						className={`w-full h-32 flex items-center justify-center text-white text-2xl ${getColorFromName(item.name)}`}
-						style={{ backgroundColor: item.color || undefined }}
+						className={`w-full h-full flex items-center justify-center text-white text-4xl font-bold ${getColorFromName(item.name)}`}
+						style={{ backgroundColor: item.color || undefined, width: '100%', height: '200px' }}
 					>
 						{getInitials(item.name)}
 					</div>
 				)}
 			</div>
 
-			<div style={{ padding: '0.5rem' }}>
-				{/* Wear count badge */}
-				{item.wearsSinceWash >= 1 && (
-					<div className={`relative mt-1 text-gray-500 flex items-center justify-center text-xs`}>
-						worn &nbsp;<span className={`${badgeColor} text-white rounded-md`} style={{ fontWeight: 'bold' }}>&nbsp;{item.wearsSinceWash}&nbsp;</span>&nbsp; time{item.wearsSinceWash > 1 ? 's' : ''} since last wash
+			{/* Content Section - Instagram post style */}
+			<div className="p-3" data-no-card-toggle>
+				{/* Action buttons row */}
+			<div className="flex justify-start">
+				{/* Wear today button */}
+				<button
+					onClick={() => onToggle(!isChecked)}
+					disabled={item.inLaundryBag || wornToday}
+					className={`flex-1 flex gap-2 py-2 px-3 font-medium text-sm transition-all`}
+					style={{ 
+						...(item.inLaundryBag || wornToday) ? { 
+							backgroundColor: '#E5E7EB', 
+							color: '#9CA3AF', 
+							cursor: 'not-allowed' 
+						} : isChecked ? { 
+							backgroundColor: '#FBBF24', 
+							color: 'black' 
+						} : {} 
+					}}
+				>
+					<div className={`w-5 h-5 flex items-center justify-center`}
+						style={{ ...isChecked ? {border: "1px solid black"} : {border: "1px solid #D1D5DB"}}}
+					>
+						{isChecked && <Check className="h-3 w-3 text-yellow-400" strokeWidth={3} />}
 					</div>
-					// <div className={`relative border border-gray-600 ${badgeColor} text-white w-full flex items-center justify-center text-sm font-bold`}>
-					//   Wears since wash: {item.wearsSinceWash} 
-					// </div>
-				)}
+					{wornToday ? 'Worn Today' : isChecked ? 'Wearing' : 'Wear'}
+				</button>					{/* Laundry bag button */}
+					{onToggleLaundryBag && (
+						<button
+							onClick={(e) => {
+								e.stopPropagation();
+								onToggleLaundryBag(!item.inLaundryBag);
+							}}
+							className={`flex items-center justify-center px-2 py-2 transition-all ${
+								item.inLaundryBag 
+									? 'bg-blue-500 text-white hover:bg-blue-600' 
+									: 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+							}`}
+							title={item.inLaundryBag ? 'In laundry bag' : 'Add to laundry bag'}
+						>
+							<ShoppingBag className="h-5 w-5" />
+						</button>
+					)}
+				</div>
+				{/* Header row with name and type icon */}
+				<div className="flex items-center justify-between mb-2">
+					<div className="flex items-center gap-2 min-w-0 flex-1">
+						{typeIcon && (
+							<img src={getIconPath(typeIcon) || ''} alt="" className="w-5 h-5 flex-shrink-0" />
+						)}
+						<h3 className="font-semibold text-base truncate">{item.name}</h3>
+						{item.size && (
+							<span className="text-xs bg-gray-100 text-gray-700 px-2 py-0.5 rounded-full flex-shrink-0">
+								{item.size}
+							</span>
+						)}
+						{item.color && (
+                  <div className="flex items-center gap-2">
+                    <div
+                      className="w-4 h-4 rounded-full border border-gray-300"
+                      style={{ backgroundColor: item.color }}
+                    />
+                  </div>
+                )}
+					</div>
+					{onEdit && !item.inLaundryBag && (
+						<button
+							type="button"
+							onClick={event => {
+								event.stopPropagation();
+								onEdit();
+							}}
+							className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition"
+							aria-label={`Edit ${item.name}`}
+						>
+							<Pencil className="h-4 w-4" />
+						</button>
+					)}
+				</div>
 
-				{!item.wearsSinceWash && (
-					<div className={`relative mt-1 text-gray-500 w-full flex items-center justify-center text-xs`}>
-						No wears since last wash
-					</div>
-				)}
-				{/* Clothes info */}
-				<div className="flex justify-between items-center">
-					<div className='items-start' style={{ paddingTop: '0.5rem', minWidth: 0 }}>
-						<div className='flex flex-row gap-2 items-center'>
-							{typeIcon && (
-									<img src={getIconPath(typeIcon) || ''} alt="" className="w-4 h-4 flex-shrink-0" />
-							)}
-							<h3 className="text-sm truncate overflow-hidden whitespace-nowrap w-full">{item.name}</h3>
-						
-							{/* <p className="text-xs text-gray-600 truncate">{item.type}</p> */}
-							{item.size && (
-								<>
-									<span className="text-xs text-gray-600 font-medium" style={{ paddingLeft: '0.25rem', paddingRight: '0.25rem', backgroundColor: "lightblue"}}>{item.size}</span>
-								</>
-							)}
-							{/* {item.madeIn && (
-								<>
-									<span className="text-xs text-gray-500 italic">{item.madeIn}</span>
-								</>
-							)} */}
-						</div>
-					</div>
+				{/* Status indicator */}
+				<div className="flex items-center gap-2 mb-3 text-xs">
+					<span className={wornToday ? 'text-green-600 font-medium' : 'text-gray-500'}>
+						{wornToday ? 'Worn today' : lastWearDate ? formatWearDate(lastWearDate) : 'Never worn'}
+					</span>
 				</div>
-				{/* Wear today checkbox */}
-				<div className="flex items-center space-x-2" style={{ paddingTop: '0.5rem', paddingBottom: '0.5rem' }} data-no-card-toggle>
-					<Checkbox
-						id={`wear-${item.id}`}
-						checked={isChecked}
-						onCheckedChange={(value: boolean | 'indeterminate') => {
-							if (value === 'indeterminate') {
-								return;
-							}
-							onToggle(Boolean(value));
-						}}
-					/>
-					<label
-						htmlFor={`wear-${item.id}`}
-						className="select-none text-sm"
-						style={{
-							backgroundColor: isChecked ? '#ffee00ee' : 'transparent',
-							color: isChecked ? 'black' : 'inherit',
-							padding: '0.25rem',
-							borderRadius: '0.25rem'
-						}}>
-						{isChecked ? 'Marked for' : 'Wear'} today
-					</label>
-				</div>
-				{/* Last worn info */}
-				<div className="mt-1">
-					<p className={`text-xs ${wornToday ? 'text-green-600 font-medium' : 'text-gray-500'}`}>
-						{wearStatusLabel}
-					</p>
-				</div>
+
+				
 			</div>
 		</div>
 	);

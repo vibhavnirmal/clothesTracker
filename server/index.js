@@ -110,10 +110,7 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: '4mb' }));
 
-const clothesSelect = db.prepare('SELECT * FROM clothes ORDER BY name');
-const wearSelect = db.prepare('SELECT * FROM wear_records ORDER BY date DESC, id DESC');
-const washSelect = db.prepare('SELECT * FROM wash_records ORDER BY date DESC, id DESC');
-
+// Run schema migrations FIRST, before preparing statements
 const clothesTableColumns = db.prepare('PRAGMA table_info(clothes)').all();
 const hasDateOfPurchaseColumn = clothesTableColumns.some(column => column.name === 'date_of_purchase');
 if (!hasDateOfPurchaseColumn) {
@@ -135,6 +132,15 @@ const hasCreatedAtColumn = clothesTableColumns.some(column => column.name === 'c
 if (!hasCreatedAtColumn) {
   db.exec('ALTER TABLE clothes ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP');
 }
+const hasInLaundryBagColumn = clothesTableColumns.some(column => column.name === 'in_laundry_bag');
+if (!hasInLaundryBagColumn) {
+  db.exec('ALTER TABLE clothes ADD COLUMN in_laundry_bag INTEGER DEFAULT 0');
+}
+
+// NOW prepare the SELECT statements AFTER schema is up-to-date
+const clothesSelect = db.prepare('SELECT * FROM clothes ORDER BY name');
+const wearSelect = db.prepare('SELECT * FROM wear_records ORDER BY date DESC, id DESC');
+const washSelect = db.prepare('SELECT * FROM wash_records ORDER BY date DESC, id DESC');
 
 // Add icon column to clothing_types table if it doesn't exist
 const clothingTypesColumns = db.prepare('PRAGMA table_info(clothing_types)').all();
@@ -267,6 +273,7 @@ function serializeClothes(row) {
     materials: row.materials ? JSON.parse(row.materials) : undefined,
     madeIn: row.made_in || undefined,
     createdAt: row.created_at || undefined,
+    inLaundryBag: Boolean(row.in_laundry_bag),
   };
 }
 
@@ -303,16 +310,12 @@ function getClothingTypes() {
     usageCount: selectClothesCountByType.get(row.name).count
   }));
   
-//   console.log('Clothing types with usage count:', typesWithCount);
-  
   const sorted = typesWithCount.sort((a, b) => {
     if (b.usageCount !== a.usageCount) {
       return b.usageCount - a.usageCount; // Most used first
     }
     return a.name.localeCompare(b.name); // Alphabetically if same count
   });
-  
-//   console.log('Sorted clothing types:', sorted);
   
   return sorted.map(item => ({ name: item.name, icon: item.icon }));
 }
@@ -536,7 +539,6 @@ app.get('/api/state', (_req, res) => {
 });
 
 app.get('/api/types', (_req, res) => {
-  console.log('GET /api/types called at', new Date().toISOString());
   res.json({ types: getClothingTypes() });
 });
 
@@ -837,15 +839,55 @@ app.post('/api/wears', (req, res) => {
     ? customDate
     : getTodayLocalDate();
 
-  const run = db.transaction(ids => {
+  // Validate date is not in the future
+  const today = getTodayLocalDate();
+  if (dateToUse > today) {
+    return res.status(400).json({ message: 'Cannot record wear for future dates.' });
+  }
+
+  // Check for existing wear records on the same date
+  const alreadyWorn = sanitizedIds.filter(id => {
+    const existing = selectWearRecordForDate.get(id, dateToUse);
+    return existing !== undefined;
+  });
+
+  if (alreadyWorn.length > 0) {
+    const itemNames = alreadyWorn
+      .map(id => {
+        const item = selectClothesRowById.get(id);
+        return item?.name || id;
+      })
+      .join(', ');
+    
+    return res.status(409).json({ 
+      message: `Already worn on ${dateToUse}: ${itemNames}`,
+      alreadyWornIds: alreadyWorn
+    });
+  }
+
+  // Get old wear threshold from query parameter (default 10 days)
+  const thresholdParam = typeof req.query.oldWearThreshold === 'string' ? req.query.oldWearThreshold : '10';
+  const oldWearThreshold = parseInt(thresholdParam, 10);
+  const thresholdDays = (!isNaN(oldWearThreshold) && oldWearThreshold >= 0 && oldWearThreshold <= 365) ? oldWearThreshold : 10;
+
+  // Calculate days difference between wear date and today
+  const wearDate = new Date(dateToUse + 'T00:00:00');
+  const todayDate = new Date(today + 'T00:00:00');
+  const daysDifference = Math.floor((todayDate - wearDate) / (1000 * 60 * 60 * 24));
+  const isOldWear = daysDifference > thresholdDays;
+
+  const run = db.transaction((ids, shouldIncrementCounter) => {
     ids.forEach(clothesId => {
       insertWearRecord.run({ id: randomUUID(), clothesId, date: dateToUse });
-      incrementWearCount.run(clothesId);
+      // Only increment counter for recent wears (<=10 days old)
+      if (shouldIncrementCounter) {
+        incrementWearCount.run(clothesId);
+      }
     });
   });
 
   try {
-    run(sanitizedIds);
+    run(sanitizedIds, !isOldWear);
     res.json({
       clothes: clothesSelect.all().map(serializeClothes),
       wearRecords: wearSelect.all().map(serializeWear),
@@ -875,7 +917,32 @@ app.delete('/api/wears/:id', (req, res) => {
 
   const run = db.transaction(() => {
     deleteWearRecordById.run(record.id);
-    decrementWearCount.run(id);
+    
+    // Recalculate wears_since_wash based on last wash date
+    const latestWash = selectLatestWashDate.get(id);
+    
+    if (latestWash && typeof latestWash.date === 'string') {
+      // If wear being removed is after last wash, recalculate count
+      if (targetDate > latestWash.date) {
+        const wearCountRow = countWearRecordsAfterDate.get(id, latestWash.date);
+        const wearsSinceWash = Number(wearCountRow?.count ?? 0);
+        updateClothesWashMetadata.run({
+          clothesId: id,
+          wearsSinceWash,
+          lastWashDate: latestWash.date,
+        });
+      }
+      // If wear is before or on last wash date, don't change wears_since_wash
+    } else {
+      // No wash history, count all remaining wears
+      const wearCountRow = countAllWearRecordsForClothes.get(id);
+      const wearsSinceWash = Number(wearCountRow?.count ?? 0);
+      updateClothesWashMetadata.run({
+        clothesId: id,
+        wearsSinceWash,
+        lastWashDate: null,
+      });
+    }
   });
 
   try {
@@ -939,9 +1006,11 @@ app.delete('/api/washes/:id', (req, res) => {
     return res.status(500).json({ message: 'Failed to undo wash event.' });
   }
 
+  const washRecordsAfterDelete = washSelect.all().map(serializeWash);
+
   res.json({
     clothes: clothesSelect.all().map(serializeClothes),
-    washRecords: washSelect.all().map(serializeWash),
+    washRecords: washRecordsAfterDelete,
   });
 });
 
@@ -976,6 +1045,12 @@ app.post('/api/washes', (req, res) => {
   const requestedDate = typeof req.body?.date === 'string' ? req.body.date.trim() : '';
   const targetDate = isValidIsoDate(requestedDate) ? requestedDate : getTodayLocalDate();
 
+  // Validate date is not in the future
+  const today = getTodayLocalDate();
+  if (targetDate > today) {
+    return res.status(400).json({ message: 'Cannot record wash for future dates.' });
+  }
+
   const run = db.transaction((ids, date) => {
     ids.forEach(clothesId => {
       insertWashRecord.run({ id: randomUUID(), clothesId, date });
@@ -995,6 +1070,73 @@ app.post('/api/washes', (req, res) => {
   }
 });
 
+// Toggle laundry bag status for a single item
+app.put('/api/clothes/:id/laundry-bag', (req, res) => {
+  const { id } = req.params;
+  const { inLaundryBag } = req.body;
+
+  if (!isUuid(id)) {
+    return res.status(400).json({ message: 'Invalid id format' });
+  }
+
+  const item = selectClothesRowById.get(id);
+  if (!item) {
+    return res.status(404).json({ message: 'Clothing item not found' });
+  }
+
+  if (typeof inLaundryBag !== 'boolean') {
+    return res.status(400).json({ message: 'inLaundryBag must be a boolean' });
+  }
+
+  try {
+    db.prepare('UPDATE clothes SET in_laundry_bag = ? WHERE id = ?')
+      .run(inLaundryBag ? 1 : 0, id);
+    
+    const updated = selectClothesRowById.get(id);
+    const serialized = serializeClothes(updated);
+    res.json({ item: serialized });
+  } catch (error) {
+    console.error('Failed to update laundry bag status', error);
+    res.status(500).json({ message: 'Failed to update laundry bag status' });
+  }
+});
+
+// Wash all items in laundry bag
+app.post('/api/laundry-bag/wash', (req, res) => {
+  const requestedDate = typeof req.body?.date === 'string' ? req.body.date.trim() : '';
+  const targetDate = isValidIsoDate(requestedDate) ? requestedDate : getTodayLocalDate();
+
+  try {
+    // Get all items in laundry bag
+    const itemsInBag = db.prepare('SELECT id FROM clothes WHERE in_laundry_bag = 1').all();
+    
+    if (itemsInBag.length === 0) {
+      return res.status(400).json({ message: 'Laundry bag is empty' });
+    }
+
+    const run = db.transaction((items, date) => {
+      items.forEach(({ id: clothesId }) => {
+        // Record wash
+        insertWashRecord.run({ id: randomUUID(), clothesId, date });
+        // Reset wear count and set last wash date
+        resetWearCount.run({ clothesId, date });
+        // Remove from laundry bag
+        db.prepare('UPDATE clothes SET in_laundry_bag = 0 WHERE id = ?').run(clothesId);
+      });
+    });
+
+    run(itemsInBag, targetDate);
+
+    res.json({
+      clothes: clothesSelect.all().map(serializeClothes),
+      washRecords: washSelect.all().map(serializeWash),
+    });
+  } catch (error) {
+    console.error('Failed to wash laundry bag', error);
+    res.status(500).json({ message: 'Failed to wash laundry bag' });
+  }
+});
+
 app.post('/api/purge', (req, res) => {
   try {
     // Delete all wear and wash records
@@ -1007,8 +1149,6 @@ app.post('/api/purge', (req, res) => {
       SET wears_since_wash = 0, 
           last_wash_date = NULL
     `).run();
-    
-    console.log('Database purged: all wear/wash records deleted, clothes data reset');
     
     // Return the updated state
     const clothes = db.prepare(`
@@ -1073,9 +1213,7 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ message: 'Unexpected server error' });
 });
 
-const server = app.listen(PORT, () => {
-  console.log(`Clothes tracker API server listening on port ${PORT}`);
-});
+const server = app.listen(PORT);
 
 let isShuttingDown = false;
 
@@ -1085,7 +1223,6 @@ function closeGracefully(reason, exitCode = 0) {
   }
 
   isShuttingDown = true;
-  console.log(`Received ${reason}. Closing HTTP server and database connection...`);
 
   server.close(serverErr => {
     let finalExitCode = exitCode;

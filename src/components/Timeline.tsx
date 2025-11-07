@@ -495,7 +495,7 @@ export function Timeline({ clothes, wearRecords, washRecords, onAddToDate, onAdd
             className="flex items-center gap-1"
           >
             <Upload className="w-4 h-4" />
-            <span className="text-xs sm:text-sm">Forgot to add photos? Upload now</span>
+            <span className="text-xs sm:text-sm">Want to mark wears from old photos? Select Now</span>
           </Button>
         </div>
 
@@ -803,7 +803,7 @@ export function Timeline({ clothes, wearRecords, washRecords, onAddToDate, onAdd
                             fontWeight: '500'
                           }}>
                             <span style={{ fontSize: 'clamp(8px, 2vw, 10px)' }}>👕</span>
-                            <span>{activity.wearCount}</span>
+                            <span>{activity.wearCount > 99 ? '99+' : activity.wearCount}</span>
                           </div>
                         )}
                         {activity.washCount > 0 && (
@@ -815,7 +815,7 @@ export function Timeline({ clothes, wearRecords, washRecords, onAddToDate, onAdd
                             fontWeight: '500'
                           }}>
                             <span style={{ fontSize: 'clamp(8px, 2vw, 10px)' }}>💧</span>
-                            <span>{activity.washCount}</span>
+                            <span>{activity.washCount > 99 ? '99+' : activity.washCount}</span>
                           </div>
                         )}
                       </div>
@@ -891,7 +891,6 @@ export function Timeline({ clothes, wearRecords, washRecords, onAddToDate, onAdd
                                   <p className="text-sm font-medium text-gray-900 truncate">{item.name}</p>
                                   <p className="text-xs text-gray-500">
                                     {item.type}
-                                    {count > 1 ? ` • ${count}×` : ''}
                                   </p>
                                 </div>
                                 <Button

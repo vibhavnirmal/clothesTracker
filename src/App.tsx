@@ -1,5 +1,5 @@
 import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Calendar, Home, PieChart, Settings as SettingsIcon, Waves, Check, Search, X, Filter, ArrowUpDown, Plus } from 'lucide-react';
+import { Calendar, Home, PieChart, Settings as SettingsIcon, ShoppingBag, Check, Search, X, Filter, ArrowUpDown, Plus } from 'lucide-react';
 import { ClothesCard } from './components/ClothesCard';
 import { AddClothesModal } from './components/AddClothesModal';
 import { AddClothesPage } from './components/AddClothesPage';
@@ -26,6 +26,8 @@ import {
 	undoWash,
 	updateClothes,
 	purgeDatabase,
+	toggleLaundryBag,
+	washLaundryBag,
 } from './lib/api';
 import { getColorName } from './lib/colors';
 import type { SettingsSection } from './components/Settings';
@@ -42,6 +44,7 @@ type BeforeInstallPromptEvent = Event & {
 };
 
 const INSTALL_DISMISS_KEY = 'clothes-tracker-install-dismissed';
+const OLD_WEAR_THRESHOLD_KEY = 'clothes-tracker-old-wear-threshold';
 
 function detectIsIos(): boolean {
 	if (typeof navigator === 'undefined') {
@@ -83,12 +86,16 @@ const Analysis = lazy(async () => {
 
 const SettingsPage = lazy(async () => import('./components/Settings'));
 
-const NAV_ITEMS: Array<{ id: Exclude<TabType, 'settings'>; icon: typeof Home; label: string }> = [
+const NAV_ITEMS: Array<{ id: Exclude<TabType, 'settings' | 'wash'>; icon: typeof Home; label: string }> = [
 	{ id: 'home', icon: Home, label: 'Home' },
 	{ id: 'add', icon: Plus, label: 'Add' },
-	{ id: 'wash', icon: Waves, label: 'Wash' },
 	{ id: 'timeline', icon: Calendar, label: 'Timeline' },
 	{ id: 'analysis', icon: PieChart, label: 'Analysis' },
+];
+
+const TOP_RIGHT_ITEMS: Array<{ id: 'wash' | 'settings'; icon: typeof Home; label: string }> = [
+	{ id: 'wash', icon: ShoppingBag, label: 'Laundry Bag' },
+	{ id: 'settings', icon: SettingsIcon, label: 'Settings' },
 ];
 
 export default function App() {
@@ -117,6 +124,7 @@ export default function App() {
 	const [showFilters, setShowFilters] = useState(false);
 	const [settingsSection, setSettingsSection] = useState<SettingsSection>('overview');
 	const [postAddRedirectTab, setPostAddRedirectTab] = useState<TabType>('home');
+	const [oldWearThresholdDays, setOldWearThresholdDays] = useState(10);
 	const undoingWearIdsRef = useRef<Set<string>>(new Set());
 	const installStateHydratedRef = useRef(false);
 	const queueRetryStateRef = useRef<{ timeoutId: number | null; attempt: number }>({
@@ -383,7 +391,7 @@ export default function App() {
 				break;
 			case 'name':
 			default:
-				sorted.sort((a, b) => a.name.localeCompare(b.name));
+				sorted.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 				break;
 		}
 
@@ -397,6 +405,10 @@ export default function App() {
 			return 0; // Maintain existing order for items in the same category
 		});
 	}, [filteredClothes, sortBy, wearStatus]);
+
+	const laundryBagCount = useMemo(() => {
+		return clothes.filter(item => item.inLaundryBag).length;
+	}, [clothes]);
 
 	const loadSnapshot = useCallback(async () => {
 		setIsLoading(true);
@@ -446,6 +458,8 @@ export default function App() {
 					case 'record-wear': {
 						const { clothes: updatedClothes, wearRecords: updatedWearRecords } = await recordWear(
 							action.payload.clothesIds,
+						undefined,
+						oldWearThresholdDays
 						);
 						setClothes(updatedClothes);
 						setWearRecords(updatedWearRecords);
@@ -701,6 +715,26 @@ export default function App() {
 	}, [installPromptEvent]);
 
 	useEffect(() => {
+		// Load old wear threshold from localStorage
+		if (typeof window !== 'undefined') {
+			const stored = window.localStorage.getItem(OLD_WEAR_THRESHOLD_KEY);
+			if (stored) {
+				const value = parseInt(stored, 10);
+				if (!isNaN(value) && value >= 0 && value <= 365) {
+					setOldWearThresholdDays(value);
+				}
+			}
+		}
+	}, []);
+
+	useEffect(() => {
+		// Save old wear threshold to localStorage
+		if (typeof window !== 'undefined') {
+			window.localStorage.setItem(OLD_WEAR_THRESHOLD_KEY, oldWearThresholdDays.toString());
+		}
+	}, [oldWearThresholdDays]);
+
+	useEffect(() => {
 		void loadSnapshot();
 		void loadClothingTypes();
 		void loadMaterialTypes();
@@ -872,7 +906,7 @@ export default function App() {
 		resetActionError();
 
 		try {
-			const { clothes: updatedClothes, wearRecords: updatedWearRecords } = await recordWear(ids);
+			const { clothes: updatedClothes, wearRecords: updatedWearRecords } = await recordWear(ids, undefined, oldWearThresholdDays);
 			setClothes(updatedClothes);
 			setWearRecords(updatedWearRecords);
 			setSelectedForWearing(new Set());
@@ -913,6 +947,44 @@ export default function App() {
 		}
 	}, [registerSync, resetActionError]);
 
+	const handleToggleLaundryBag = useCallback(async (clothesId: string, inBag: boolean) => {
+		resetActionError();
+		
+		// Optimistically update UI
+		setClothes(prev => 
+			prev.map(c => c.id === clothesId ? { ...c, inLaundryBag: inBag } : c)
+		);
+		
+		try {
+			const { item } = await toggleLaundryBag(clothesId, inBag);
+			// Confirm with server response
+			setClothes(prev => prev.map(c => c.id === item.id ? item : c));
+			toast.success(inBag ? 'Added to laundry bag' : 'Removed from laundry bag');
+		} catch (err) {
+			console.error('API call failed, reverting');
+			// Revert on error
+			setClothes(prev => prev.map(c => 
+				c.id === clothesId ? { ...c, inLaundryBag: !inBag } : c
+			));
+			const message = err instanceof Error ? err.message : 'Failed to update laundry bag';
+			setActionError(message);
+			toast.error(message);
+		}
+	}, [resetActionError]);
+
+	const handleWashLaundryBag = useCallback(async () => {
+		resetActionError();
+		try {
+			const { clothes: updatedClothes, washRecords: updatedWashRecords } = await washLaundryBag();
+			setClothes(updatedClothes);
+			setWashRecords(updatedWashRecords);
+		} catch (err) {
+			const message = err instanceof Error ? err.message : 'Failed to wash laundry bag';
+			setActionError(message);
+			throw err;
+		}
+	}, [resetActionError]);
+
 	const handlePurgeDatabase = useCallback(async () => {
 		resetActionError();
 		try {
@@ -940,7 +1012,7 @@ export default function App() {
 		}
 
 		try {
-			const { clothes: updatedClothes, wearRecords: updatedWearRecords } = await recordWear(uniqueIds, date);
+			const { clothes: updatedClothes, wearRecords: updatedWearRecords } = await recordWear(uniqueIds, date, oldWearThresholdDays);
 			setClothes(updatedClothes);
 			setWearRecords(updatedWearRecords);
 
@@ -1066,7 +1138,7 @@ export default function App() {
 					continue;
 				}
 
-				const { clothes: updatedClothes, wearRecords: updatedWearRecords } = await recordWear(idsToRecord, date);
+				const { clothes: updatedClothes, wearRecords: updatedWearRecords } = await recordWear(idsToRecord, date, oldWearThresholdDays);
 				setClothes(updatedClothes);
 				setWearRecords(updatedWearRecords);
 				currentWearRecords = updatedWearRecords;
@@ -1275,6 +1347,7 @@ export default function App() {
 													resetActionError();
 													setEditingClothes(item);
 												}}
+												onToggleLaundryBag={(inBag) => handleToggleLaundryBag(item.id, inBag)}
 											/>
 										);
 									})}
@@ -1333,7 +1406,9 @@ export default function App() {
 				return (
 					<WashClothes
 						clothes={clothes}
-						onMarkWashed={markAsWashed}
+						clothingTypes={clothingTypes}
+						onRemoveFromBag={(id) => handleToggleLaundryBag(id, false)}
+						onWashAll={handleWashLaundryBag}
 					/>
 				);
 
@@ -1377,26 +1452,11 @@ export default function App() {
 							clothes={clothes}
 							wearRecords={wearRecords}
 							washRecords={washRecords}
+						types={clothingTypes}
 						/>
 					</Suspense>
 				);
 
-			case 'analysis':
-				return (
-					<Suspense
-						fallback={(
-							<div className="flex h-[calc(100vh-6rem)] items-center justify-center text-gray-600">
-								Crunching wardrobe stats...
-							</div>
-						)}
-					>
-						<Analysis
-							clothes={clothes}
-							wearRecords={wearRecords}
-							washRecords={washRecords}
-						/>
-					</Suspense>
-				);
 
 			case 'settings':
 				return (
@@ -1423,6 +1483,8 @@ export default function App() {
 							typeUsage={clothingTypeUsage}
 							onCreateClothing={() => openAddPage('settings')}
 							onPurgeDatabase={handlePurgeDatabase}
+						oldWearThresholdDays={oldWearThresholdDays}
+						onOldWearThresholdChange={setOldWearThresholdDays}
 						/>
 					</Suspense>
 				);
@@ -1515,49 +1577,66 @@ export default function App() {
 		<div className="min-h-screen pb-28">
 			<Toaster />
 			
-			{/* Top Header with Settings */}
-				<div className="sticky top-0 z-20 bg-white">
-					<div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between" style={{ backgroundColor: '#f2f2f2'}}>
-						<h1 className="text-lg font-semibold text-gray-900">
-							{activeTab === 'home' && 'My Wardrobe'}
-							{activeTab === 'add' && 'Add Clothes'}
-							{activeTab === 'wash' && 'Wash Clothes'}
-							{activeTab === 'timeline' && 'Timeline'}
-							{activeTab === 'analysis' && 'Analysis'}
-							{activeTab === 'settings' && 'Settings'}
-						</h1>
-						{activeTab !== 'settings' && (
-						<button
-							onClick={() => {
-								setSettingsSection('overview');
-								setActiveTab('settings');
-								resetActionError();
-							}}
-							className="p-2 rounded-lg text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition-colors"
-							aria-label="Settings"
-						>
-							<SettingsIcon className="w-5 h-5" />
-						</button>
-						)}
-
-						{/* if settings page, show homepage button */}
-						{activeTab === 'settings' && (
-							<button
-								onClick={() => {
-									setSettingsSection('overview');
-									setActiveTab('home');
-									resetActionError();
-								}}
-								className="p-2 rounded-lg text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition-colors"
-								aria-label="Home"
-							>
-								<Home className="w-5 h-5" />
-							</button>
-							)}
+		{/* Top Header with Laundry Bag and Settings */}
+			<div className="sticky top-0 z-20 bg-white">
+				<div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between" style={{ backgroundColor: '#f2f2f2'}}>
+					<h1 className="text-lg font-semibold text-gray-900">
+						{activeTab === 'home' && 'My Wardrobe'}
+						{activeTab === 'add' && 'Add Clothes'}
+						{activeTab === 'wash' && 'Wash Clothes'}
+						{activeTab === 'timeline' && 'Timeline'}
+						{activeTab === 'analysis' && 'Analysis'}
+						{activeTab === 'settings' && 'Settings'}
+					</h1>
+					
+					{/* Top Right Items: Laundry Bag and Settings */}
+					<div className="flex items-center gap-2">
+						{TOP_RIGHT_ITEMS.map(({ id, icon: Icon, label }) => {
+							const isActive = activeTab === id;
+							const showBadge = id === 'wash' && laundryBagCount > 0;
+							
+							return (
+								<button
+									key={id}
+									onClick={() => {
+										if (id === 'settings') {
+											setSettingsSection('overview');
+										}
+										setActiveTab(id);
+										resetActionError();
+									}}
+									className="p-2 rounded-lg text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition-colors relative"
+									aria-label={label}
+									style={{
+										backgroundColor: isActive ? '#EFF6FF' : 'transparent',
+										color: isActive ? '#2563EB' : '#6B7280',
+									}}
+								>
+									<Icon className="w-6 h-6" />
+									{showBadge && (
+										<span style={{
+											position: 'absolute',
+											top: '-2px',
+											right: '-2px',
+											backgroundColor: '#DC2626',
+											color: 'white',
+											borderRadius: '9999px',
+											padding: '2px 6px',
+											fontSize: '10px',
+											fontWeight: 'bold',
+											lineHeight: '1',
+											minWidth: '18px',
+											textAlign: 'center',
+										}}>
+											{laundryBagCount}
+										</span>
+									)}
+								</button>
+							);
+						})}
 					</div>
 				</div>
-			
-			{renderContent()}
+			</div>			{renderContent()}
 
 			<AddClothesModal
 				isOpen={Boolean(editingClothes)}
@@ -1588,19 +1667,17 @@ export default function App() {
 
 			<nav className="fixed inset-x-0 w-full bottom-0 z-30 bg-white border-t border-gray-200 shadow-lg">
 				<div 
-					style={{
-						display: 'grid',
-						gridTemplateColumns: 'repeat(5, 1fr)',
-						gap: '4px',
-						padding: '8px',
-						maxWidth: '1280px',
-						margin: '0 auto'
-					}}
-				>
-					{NAV_ITEMS.map(({ id, icon: Icon, label }) => {
-						const isActive = activeTab === id;
-
-						return (
+				style={{
+					display: 'grid',
+					gridTemplateColumns: 'repeat(4, 1fr)',
+					gap: '4px',
+					padding: '8px',
+					maxWidth: '1280px',
+					margin: '0 auto'
+				}}
+			>
+				{NAV_ITEMS.map(({ id, icon: Icon, label }) => {
+					const isActive = activeTab === id;						return (
 							<button
 								key={id}
 								type="button"
@@ -1623,6 +1700,7 @@ export default function App() {
 									color: isActive ? '#2563EB' : '#4B5563',
 									border: 'none',
 									cursor: 'pointer',
+									position: 'relative',
 								}}
 								onMouseEnter={(e) => {
 									if (!isActive) {
@@ -1637,7 +1715,9 @@ export default function App() {
 									}
 								}}
 							>
-								<Icon style={{ width: '24px', height: '24px', flexShrink: 0 }} />
+								<div style={{ position: 'relative' }}>
+									<Icon style={{ width: '24px', height: '24px', flexShrink: 0 }} />
+								</div>
 								<span style={{ fontSize: '12px', fontWeight: '500', lineHeight: '1.25', textAlign: 'center' }}>
 									{label}
 								</span>

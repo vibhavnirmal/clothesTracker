@@ -13,4 +13,6 @@ export interface SettingsProps {
   typeUsage: Record<string, number>;
   onCreateClothing: () => void;
   onPurgeDatabase: () => void;
+  oldWearThresholdDays: number;
+  onOldWearThresholdChange: (days: number) => void;
 }

@@ -11,6 +11,7 @@ export interface ClothesItem {
   materials?: Record<string, number>; // e.g., { "Cotton": 70, "Polyester": 30 }
   madeIn?: string;
   createdAt?: string;
+  inLaundryBag?: boolean;
 }
 
 export interface WearRecord {
