@@ -907,11 +907,11 @@ export function Timeline({ clothes, wearRecords, washRecords, onAddToDate, onAdd
                                   <span className="text-xs font-medium">Remove</span>
                                 </Button>
                               </div>
-                              {item.wearsSinceWash >= NEEDS_WASH_THRESHOLD && (
+                              {/* {item.wearsSinceWash >= NEEDS_WASH_THRESHOLD && (
                                 <span className="inline-block mt-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">
                                   Needs wash
                                 </span>
-                              )}
+                              )} */}
                             </div>
                           </div>
                         </div>
