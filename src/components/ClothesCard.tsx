@@ -105,7 +105,7 @@ export function ClothesCard({
 				{/* Selected checkmark - center overlay when selected */}
 				{isChecked && (
 					<div className="absolute inset-0 bg-black bg-opacity-30 flex items-center justify-center z-10">
-						<div className="bg-yellow-400 rounded-full p-3">
+						<div className="rounded-full p-3" style={{ backgroundColor:"yellow"}}>
 							<svg className="w-8 h-8 text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 								<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
 							</svg>
