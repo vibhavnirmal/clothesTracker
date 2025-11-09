@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { ShoppingBag, X } from 'lucide-react';
 import { Button } from './ui/button';
 import { toast } from './ui/sonner';
@@ -88,7 +88,9 @@ export function WashClothes({ clothes, clothingTypes, onRemoveFromBag, onWashAll
             >
               <button
                 onClick={() => handleRemove(item.id)}
-                className="absolute top-2 right-2 p-1.5 bg-red-100 hover:bg-red-200 rounded-full transition-colors z-10"
+                className="absolute top-2 right-2 p-1 transition-colors z-10 rounded-sm"
+                // bg-red-100 hover:bg-red-200 
+                style={{ backgroundColor: 'rgba(255, 200, 200, 1)', color: 'red', border: '1px solid red' }}
                 title="Remove from laundry bag"
               >
                 <X className="h-4 w-4 text-red-600" />

@@ -345,6 +345,9 @@ export default function App() {
 		};
 
 		return clothes.filter(item => {
+			// Hide clothes that are in the laundry bag
+			if (item.inLaundryBag) return false;
+
 			const matchesType = !typeFilter || item.type === typeFilter;
 			const itemColor = item.color?.trim().toUpperCase() ?? '';
 			
